@@ -1,2 +1,0 @@
-/usr/bin/ar qc libSolvex.a CMakeFiles/Solvex.dir/Equation.cpp.o
-/usr/bin/ranlib libSolvex.a
