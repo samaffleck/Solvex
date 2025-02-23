@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/SolvexExamples.dir/SimpleExample.cpp.o -o SolvexExamples  ../src/libSolvex.a 
