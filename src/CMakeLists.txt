@@ -1,5 +1,6 @@
 add_library(Solvex STATIC
     Equation.cpp
+    Solvex.cpp
 )
 
 # Include Eigen as an INTERFACE dependency
