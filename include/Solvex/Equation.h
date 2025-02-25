@@ -2,9 +2,20 @@
 
 #include "eigen3/Eigen/Dense"
 
+#include <vector>
 
 namespace Solvex
 {
+    struct Subsystem
+    {
+        std::size_t dimension = 0;
+        std::function<void(
+            const Eigen::Ref<const Eigen::VectorXd>& myX,
+            const std::vector<Eigen::Ref<const Eigen::VectorXd>>& otherX,
+            Eigen::Ref<Eigen::VectorXd> dmyX
+        )> compute;
+    };
+
     struct Equation
     {
         Equation(int _N);
