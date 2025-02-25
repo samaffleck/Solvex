@@ -1,5 +1,6 @@
 #include <iostream>
 #include <unordered_map>
+#include <map>
 
 #include "Solvex/Solvex.h"
 #include "Solvex/Equation.h"
@@ -61,31 +62,117 @@ struct Layer
     updateLayerPressure updatePressure;
 };
 
+template <typename T>
+class Collection
+{
+public:
+
+    void add(const std::string& key, const T& item)
+    {
+        items[key] = item;
+        insertionOrder.push_back(key);
+    }
+
+    T* get(const std::string& key)
+    {
+        auto it = items.find(key);
+        return (it != items.end()) ? &it->second : nullptr;
+    }
+
+    bool contains(const std::string& key) const
+    {
+        return items.find(key) != items.end();
+    }
+
+    bool remove(const std::string& key)
+    {
+        auto it = items.find(key);
+        if (it != items.end())
+        {
+            items.erase(it);
+            insertionOrder.erase(
+                std::remove(insertionOrder.begin(), insertionOrder.end(), key),
+                insertionOrder.end()
+            );
+            return true;
+        }
+        return false;
+    }
+
+    std::vector<T*> getOrderedItems()
+    {
+        std::vector<T*> orderedItems;
+        for (const auto& key : insertionOrder)
+        {
+            orderedItems.push_back(&items[key]);
+        }
+        return orderedItems;
+    }
+
+private:
+    std::unordered_map<std::string, T> items;
+    std::vector<std::string> insertionOrder;
+
+};
+
 struct System
 {
-    Layer layer;
-    
-    void operator()(const Eigen::VectorXd& x, Eigen::VectorXd& dxdt) const
+    Collection<Layer> layers;
+
+    int getNumberOfCells()
     {
-        Eigen::Map<const Eigen::VectorXd> T(&x[0], layer.N);
-        Eigen::Map<const Eigen::VectorXd> P(&x[layer.N], layer.N);
-
-        Eigen::Map<Eigen::VectorXd> dT_dt(&dxdt[0], layer.N);
-        Eigen::Map<Eigen::VectorXd> dP_dt(&dxdt[layer.N], layer.N);
-
-        layer.T = T;
-        layer.P = P;
-
-        layer.updateTemperature(T, P, dT_dt);
-        layer.updatePressure(P, T, dP_dt);
+        int total = 0;
+        for (const Layer* layer : layers.getOrderedItems())
+        {
+            total += layer->N;
+        }
+        return total;
     }
 
-    Eigen::VectorXd getInitialConditions() const
+    void operator()(const Eigen::VectorXd& x, Eigen::VectorXd& dxdt)
     {
-        Eigen::VectorXd x0(2 * layer.N);
-        x0 << layer.T0, layer.P0; // uses Eigen's "comma initializer" for stack assignment
+       int Nt = 0, Np = 0;
+
+        for (const Layer* layer : layers.getOrderedItems())
+        {
+            Eigen::Map<const Eigen::VectorXd> T(&x[Nt], layer->N);
+            Eigen::Map<Eigen::VectorXd> dT_dt(&dxdt[Nt], layer->N);
+
+            int P_offset = getNumberOfCells() + Np;
+            Eigen::Map<const Eigen::VectorXd> P(&x[P_offset], layer->N);
+            Eigen::Map<Eigen::VectorXd> dP_dt(&dxdt[P_offset], layer->N);
+
+            layer->T = T;
+            layer->updateTemperature(T, P, dT_dt);
+
+            layer->P = P;
+            layer->updatePressure(P, T, dP_dt);
+
+            Nt += layer->N;
+            Np += layer->N;
+        }
+    }
+
+    Eigen::VectorXd getInitialConditions()
+    {
+        int Nc = getNumberOfCells();
+
+        Eigen::VectorXd x0(Nc * 2); // Allocate space for T and P
+
+        int offset_T = 0;
+        int offset_P = Nc;
+
+        for (const Layer* layer : layers.getOrderedItems())
+        {
+            x0.segment(offset_T, layer->N) = layer->T0;
+            x0.segment(offset_P, layer->N) = layer->P0;
+            offset_P += layer->N;
+            offset_T += layer->N;
+        }
+
         return x0;
     }
+
 };
 
 int main()
@@ -93,12 +180,27 @@ int main()
     int N = 10;
 
     System system;
-    system.layer.N = N;
-    system.layer.updatePressure.topBC = 50;
-    system.layer.updatePressure.bottomBC = 30;
 
-    system.layer.T0.setConstant(N, 50.0);
-    system.layer.P0.setConstant(N, 30.0);
+    Layer layer1;
+    layer1.N = 10;
+    layer1.updatePressure.topBC = 50;
+    layer1.updatePressure.bottomBC = 30;
+    layer1.updateTemperature.topBC = 100;
+    layer1.updateTemperature.bottomBC = 10;
+    layer1.T0.setConstant(layer1.N, 50.0);
+    layer1.P0.setConstant(layer1.N, 30.0);
+
+    Layer layer2;
+    layer2.N = 20;
+    layer2.updatePressure.topBC = 50;
+    layer2.updatePressure.bottomBC = 30;
+    layer2.updateTemperature.topBC = 100;
+    layer2.updateTemperature.bottomBC = 10;
+    layer2.T0.setConstant(layer2.N, 50.0);
+    layer2.P0.setConstant(layer2.N, 30.0);
+
+    system.layers.add("layer 1", layer1);
+    system.layers.add("layer 2", layer2);
 
     Eigen::VectorXd x0 = system.getInitialConditions();
 
