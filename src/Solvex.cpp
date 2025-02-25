@@ -321,7 +321,7 @@ namespace Solvex
         return x;
     }
 
-        Eigen::VectorXd NLESolver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)> f, 
+    Eigen::VectorXd NLESolver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)> f, 
         Eigen::VectorXd& x0,
         double absolute_tolerance,
         double relative_tolerance,
@@ -355,22 +355,6 @@ namespace Solvex
             
             itt++;
         }
-
-
-        auto stepResult = BDF1NewtonSolver(f_dxdt, 
-            x, 
-            x_dt, 
-            Fx, 
-            J, 
-            dt, 
-            num_of_sup_diag, 
-            num_of_sub_diag, 
-            max_num_of_newton_itterations, 
-            jacobian_update_frequency, 
-            absolute_tolerance, 
-            relative_tolerance, 
-            newton_relaxation_factor);
-
 
         return x;
     }

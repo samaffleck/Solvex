@@ -1,3 +1,7 @@
-# Example executable
-add_executable(SolvexExamples SimpleExample.cpp)
-target_link_libraries(SolvexExamples PRIVATE Solvex)
+# Simple example executable
+add_executable(SimpleExample SimpleExample.cpp)
+target_link_libraries(SimpleExample PRIVATE Solvex)
+
+# System of ode executable
+add_executable(SystemOfODEs SystemOfNLEquations.cpp)
+target_link_libraries(SystemOfODEs PRIVATE Solvex)
