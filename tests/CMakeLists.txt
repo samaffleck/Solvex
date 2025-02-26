@@ -1,6 +1,14 @@
-# Add a test executable
-add_executable(test_solvex TestSolvex.cpp)
-target_link_libraries(test_solvex PRIVATE Solvex)
+cmake_minimum_required(VERSION 3.10)
+project(TestSolvex)
 
-# Register test with CTest
-add_test(NAME TestSolvex COMMAND test_solvex)
+set(CMAKE_BUILD_TYPE Debug)  # Enables debugging symbols
+set(CMAKE_CXX_STANDARD 17)
+
+# Enable testing support
+enable_testing()
+
+# Add test executable
+add_executable(TestSolvex TestSolvex.cpp)
+
+# ✅ Explicitly link Google Test, pthread, and Solvex
+target_link_libraries(TestSolvex PRIVATE Solvex)

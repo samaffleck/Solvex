@@ -186,7 +186,7 @@ int main()
     layer1.updatePressure.topBC = 50;
     layer1.updatePressure.bottomBC = 30;
     layer1.updateTemperature.topBC = 100;
-    layer1.updateTemperature.bottomBC = 10;
+    layer1.updateTemperature.bottomBC = 0;
     layer1.T0.setConstant(layer1.N, 50.0);
     layer1.P0.setConstant(layer1.N, 30.0);
 
@@ -195,7 +195,7 @@ int main()
     layer2.updatePressure.topBC = 50;
     layer2.updatePressure.bottomBC = 30;
     layer2.updateTemperature.topBC = 100;
-    layer2.updateTemperature.bottomBC = 10;
+    layer2.updateTemperature.bottomBC = 0;
     layer2.T0.setConstant(layer2.N, 50.0);
     layer2.P0.setConstant(layer2.N, 30.0);
 
@@ -206,9 +206,14 @@ int main()
 
     std::cout << "x0: " << x0 << "\n";
 
-    //Eigen::VectorXd solution = Solvex::NLESolver(system, x0);
-    Eigen::VectorXd solution = Solvex::BFD1Solver(system, x0, 0, 100);
+    Eigen::VectorXd NLE_solution = Solvex::NLESolver(system, x0);
+    Eigen::VectorXd BDF1_solution = Solvex::BFD1Solver(system, x0, 0, 1000);
+    //Eigen::VectorXd BDF2_solution = Solvex::BFD2Solver(system, x0, 0, 100);
 
-    std::cout << "Solution:\n" << solution << std::endl;
+    double error = (NLE_solution - BDF1_solution).norm();
+
+    std::cout << "BDF1 Solution:\n" << BDF1_solution << std::endl;
+    //std::cout << "BDF2 Solution:\n" << BDF2_solution << std::endl;
+    std::cout << "\nError:\n" << error << std::endl;
     return 0;
 }
