@@ -6,6 +6,8 @@
 
 namespace Solvex
 {
+    using Func = std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)>;
+
     struct NewtonSolverMessage
     {
         bool converged = false;
@@ -14,10 +16,12 @@ namespace Solvex
         std::string errorMessage{};
     };
 
-    void TDMA(const Eigen::MatrixXd& A, const Eigen::VectorXd& y, Eigen::VectorXd& x);
+    void TDMA(const Eigen::MatrixXd& A, 
+        const Eigen::VectorXd& y, 
+        Eigen::VectorXd& x);
 
-    Eigen::VectorXd BFD1Solver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt, 
-        Eigen::VectorXd& x0,
+    Eigen::VectorXd BFD1Solver(const Func& f_dxdt,
+        const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
         double absolute_tolerance = 1e-6,
@@ -28,8 +32,8 @@ namespace Solvex
         int jacobian_update_frequency = 1,
         double newton_relaxation_factor = 1.0);
 
-    Eigen::VectorXd BFD2Solver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt, 
-        Eigen::VectorXd& x0,
+    Eigen::VectorXd BFD2Solver(const Func& f_dxdt,
+        const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
         double absolute_tolerance = 1e-6,
@@ -41,8 +45,8 @@ namespace Solvex
         double newton_relaxation_factor = 1.0);
 
 
-    Eigen::VectorXd NLESolver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)> f, 
-        Eigen::VectorXd& x0,
+    Eigen::VectorXd NLESolver(const Func& f,
+        const Eigen::VectorXd& x0,
         double absolute_tolerance = 1e-6,
         double relative_tolerance = 1e-6,
         int num_of_sup_diag = 1,

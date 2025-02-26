@@ -5,7 +5,9 @@
 namespace Solvex
 {
     
-    void TDMA(const Eigen::MatrixXd& A, const Eigen::VectorXd& y, Eigen::VectorXd& x)
+    void TDMA(const Eigen::MatrixXd& A, 
+        const Eigen::VectorXd& y, 
+        Eigen::VectorXd& x)
     {
         // Solves Ax = y, where A is tri-diagonal
         int N = x.size();
@@ -31,7 +33,7 @@ namespace Solvex
         }
     }
 
-    void approximateJ(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)> f,
+    void approximateJ(const Func& f,
         const Eigen::VectorXd& x,
         const Eigen::VectorXd& Fx,
         Eigen::MatrixXd& J,
@@ -106,48 +108,12 @@ namespace Solvex
         x += dx * relax_factor;
     }
 
-    void BDF1Residual(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt,
+    void BDF1Residual(const Func& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         Eigen::VectorXd& Fx,
         double dt)
     {
-        //****************************************************************************
-        //
-        //  Purpose:
-        //
-        //    backwardsDifferenceResidual() evaluates the residual using the backwards 
-        //    difference formula.
-        //
-        //  Discussion:
-        //
-        //      Using the backwards difference formula:
-        //
-        //      dxdt = ( x - x_dt ) / ( dt )
-        //
-        //    This can be rewritten as
-        //
-        //      residual = x - x_dt - dt * dxdt
-        //
-        //    A nonlinear equation solver can be used
-        //    to estimate the value x that makes the residual zero.
-        //
-        //  Input:
-        //
-        //    std::function<void(double t, const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt : 
-        //    evaluates the right hand side of the ODE.
-        //
-        //    double dt = time step
-        //
-        //    Eigen::VectorXd& x_dt: the old time and solution.
-        //
-        //    Eigen::VectorXd& x: the current solution.
-        //
-        //  Output:
-        //
-        //    Eigen::VectorXd& Fx: the residual vector.
-        //
-
         int N = x.size();
         Eigen::VectorXd dx_dt(N); // Create the dx_dt vector
         f_dxdt(x, dx_dt);
@@ -158,7 +124,7 @@ namespace Solvex
         }
     }
 
-    void BDF2Residual(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt,
+    void BDF2Residual(const Func& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         const Eigen::VectorXd& x_dt2,
@@ -181,7 +147,7 @@ namespace Solvex
         }
     }
 
-    void BDF1ApproximateJacobian(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt,
+    void BDF1ApproximateJacobian(const Func& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         Eigen::VectorXd& Fx,
@@ -245,7 +211,7 @@ namespace Solvex
         }
     }
 
-    void BDF2ApproximateJacobian(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt,
+    void BDF2ApproximateJacobian(const Func& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         const Eigen::VectorXd& x_dt2,
@@ -311,7 +277,7 @@ namespace Solvex
         }
     }
 
-    NewtonSolverMessage BDF1NewtonSolver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt,
+    NewtonSolverMessage BDF1NewtonSolver(const Func& f_dxdt,
         Eigen::VectorXd& x, 
         const Eigen::VectorXd& x_dt, 
         Eigen::VectorXd& Fx, 
@@ -355,7 +321,7 @@ namespace Solvex
         return {isConverged, itt + 1, error, errMsg};
     }
 
-    NewtonSolverMessage BDF2NewtonSolver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt,
+    NewtonSolverMessage BDF2NewtonSolver(const Func& f_dxdt,
         Eigen::VectorXd& x, 
         const Eigen::VectorXd& x_dt, 
         const Eigen::VectorXd& x_dt2, 
@@ -401,8 +367,8 @@ namespace Solvex
         return {isConverged, itt + 1, error, errMsg};
     }
 
-    Eigen::VectorXd BFD1Solver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt, 
-        Eigen::VectorXd& x0,
+    Eigen::VectorXd BFD1Solver(const Func& f_dxdt,
+        const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
         double absolute_tolerance,
@@ -459,8 +425,8 @@ namespace Solvex
         return x;
     }
 
-    Eigen::VectorXd BFD2Solver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& dx_dt)> f_dxdt, 
-        Eigen::VectorXd& x0,
+    Eigen::VectorXd BFD2Solver(const Func& f_dxdt,
+        const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
         double absolute_tolerance,
@@ -524,8 +490,8 @@ namespace Solvex
         return x;
     }
 
-    Eigen::VectorXd NLESolver(std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)> f, 
-        Eigen::VectorXd& x0,
+    Eigen::VectorXd NLESolver(const Func& f,
+        const Eigen::VectorXd& x0,
         double absolute_tolerance,
         double relative_tolerance,
         int num_of_sup_diag,
@@ -561,4 +527,5 @@ namespace Solvex
 
         return x;
     }
-}
+
+} // End Solvex namespace
