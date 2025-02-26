@@ -20,7 +20,7 @@ namespace Solvex
         const Eigen::VectorXd& y, 
         Eigen::VectorXd& x);
 
-    Eigen::VectorXd BFD1Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF1Solver(const Func& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
@@ -32,7 +32,7 @@ namespace Solvex
         int jacobian_update_frequency = 1,
         double newton_relaxation_factor = 1.0);
 
-    Eigen::VectorXd BFD2Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF2Solver(const Func& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,

@@ -99,6 +99,16 @@ namespace Solvex
         }
     }
 
+    void NewtonItterationTDMA(const Eigen::MatrixXd& J,
+        const Eigen::VectorXd& Fx,
+        Eigen::VectorXd& x,
+        double relax_factor)
+    {
+        Eigen::VectorXd dx(x.size());
+        TDMA(J, -Fx, dx);
+        x += dx * relax_factor;
+    }
+
     void NewtonItteration(const Eigen::MatrixXd& J,
         const Eigen::VectorXd& Fx, 
         Eigen::VectorXd& x, 
@@ -294,6 +304,7 @@ namespace Solvex
         bool isConverged = false;
         int itt = 0;
         double error = abs_tol * 10;
+        int rank = 1 + num_of_sub_diag + num_of_sup_diag;
 
         BDF1Residual(f_dxdt, x, x_dt, Fx, dt);
         BDF1ApproximateJacobian(f_dxdt, x, x_dt, Fx, J, dt, num_of_sup_diag, num_of_sub_diag);
@@ -302,9 +313,19 @@ namespace Solvex
         {
             BDF1Residual(f_dxdt, x, x_dt, Fx, dt);
             if (itt % jac_update_freq == 0) // update jacobian evey x itterations. By default, it is updated every itteration
+            {
                 BDF1ApproximateJacobian(f_dxdt, x, x_dt, Fx, J, dt, num_of_sup_diag, num_of_sub_diag);
+            }
 
-            NewtonItteration(J, Fx, x, relax_factor);
+            if (rank <= 3)
+            {
+                NewtonItterationTDMA(J, Fx, x, relax_factor);
+            }
+            else
+            {
+                NewtonItteration(J, Fx, x, relax_factor);
+            }
+            
             double allowedError = abs_tol + rel_tol * x.norm();
             BDF1Residual(f_dxdt, x, x_dt, Fx, dt);
             error = Fx.norm(); 
@@ -340,6 +361,7 @@ namespace Solvex
         bool isConverged = false;
         int itt = 0;
         double error = abs_tol * 10;
+        int rank = 1 + num_of_sub_diag + num_of_sup_diag;
 
         BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, dt, dt2);
         BDF2ApproximateJacobian(f_dxdt, x, x_dt, x_dt2, Fx, J, dt, dt2, num_of_sup_diag, num_of_sub_diag);
@@ -350,7 +372,15 @@ namespace Solvex
             if (itt % jac_update_freq == 0) // update jacobian evey x itterations. By default, it is updated every itteration
                 BDF2ApproximateJacobian(f_dxdt, x, x_dt, x_dt2, Fx, J, dt, dt2, num_of_sup_diag, num_of_sub_diag);
 
-            NewtonItteration(J, Fx, x, relax_factor);
+            if (rank <= 3)
+            {
+                NewtonItterationTDMA(J, Fx, x, relax_factor);
+            }
+            else
+            {
+                NewtonItteration(J, Fx, x, relax_factor);
+            }
+
             double allowedError = abs_tol + rel_tol * x.norm();
             BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, dt, dt2);
             error = Fx.norm(); 
@@ -367,7 +397,7 @@ namespace Solvex
         return {isConverged, itt + 1, error, errMsg};
     }
 
-    Eigen::VectorXd BFD1Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF1Solver(const Func& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
@@ -411,7 +441,7 @@ namespace Solvex
                 x_dt = x;       // Update the solution vector
                 time += dt;     // Increment step time
 
-                std::cout << "Time = " << time << "\nx = \n" << x << "\n"; 
+                std::cout << "Time = " << time << "\ndt = \n" << dt << "\n"; 
 
                 dt *= 2;    // On successful steps, double the step size.
             }
@@ -425,7 +455,7 @@ namespace Solvex
         return x;
     }
 
-    Eigen::VectorXd BFD2Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF2Solver(const Func& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
@@ -470,13 +500,14 @@ namespace Solvex
 
             if (stepResult.converged)
             {
-                // Update the solution vector
+                // Update the solution vector and time steps
                 x_dt2 = x_dt;
-                x_dt = x;     
+                x_dt = x;
+                dt2 = dt;
 
                 time += dt;     // Increment step time
 
-                //std::cout << "Time = " << time << "\nx = \n" << x << "\n"; 
+                std::cout << "Time = " << time << "\ndt = \n" << dt << "\n"; 
 
                 dt *= 2;        // On successful steps, double the step size.
             }

@@ -207,13 +207,13 @@ int main()
     std::cout << "x0: " << x0 << "\n";
 
     Eigen::VectorXd NLE_solution = Solvex::NLESolver(system, x0);
-    Eigen::VectorXd BDF1_solution = Solvex::BFD1Solver(system, x0, 0, 1000);
-    //Eigen::VectorXd BDF2_solution = Solvex::BFD2Solver(system, x0, 0, 100);
+    Eigen::VectorXd BDF1_solution = Solvex::BDF1Solver(system, x0, 0, 1000);
+    Eigen::VectorXd BDF2_solution = Solvex::BDF2Solver(system, x0, 0, 1000);
 
-    double error = (NLE_solution - BDF1_solution).norm();
+    double errorBDF1 = (NLE_solution - BDF1_solution).norm();
+    double errorBDF2 = (NLE_solution - BDF2_solution).norm();
 
-    std::cout << "BDF1 Solution:\n" << BDF1_solution << std::endl;
-    //std::cout << "BDF2 Solution:\n" << BDF2_solution << std::endl;
-    std::cout << "\nError:\n" << error << std::endl;
+    std::cout << "\nError BDF1:\n" << errorBDF1 << std::endl;
+    std::cout << "\nError BDF2:\n" << errorBDF2 << std::endl;
     return 0;
 }
