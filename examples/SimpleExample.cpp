@@ -3,35 +3,42 @@
 #include "Solvex/Solvex.h"
 #include "Solvex/Equation.h"
 
+#include "autodiff/forward/dual/dual.hpp"
+#include <autodiff/forward/real/eigen.hpp>
 
 struct ODE
 {
-    double topBC    = 100;
-    double bottomBC = 10;
+    double A = 1.0;
+    double B = 2.0;
 
-    void operator()(const Eigen::VectorXd& x,
-                    Eigen::VectorXd& dxdt) const
+    void operator()(const double t,
+        const Eigen::VectorXd& x,
+        Eigen::VectorXd& dxdt)
     {
-        int N = x.size() - 1;
-
-        dxdt(0) = topBC - x(0);
-        for (int n = 1; n < N; ++n)
-        {
-            dxdt(n) = x(n - 1) - 2 * x(n) * x(n) + x(n + 1);
-        }
-        dxdt(N) = bottomBC - x(N);
+        dxdt(0) = x(1);
+        dxdt(1) = (A/B) * t * x(0);
     }
 };
 
 int main(int, char**)
 {
-    Eigen::VectorXd x0(10);
-    x0.setConstant(1.0);
+    Eigen::VectorXd x0(2);
+    x0 << 0.0, 0.01;
 
     ODE ode;
+    double t = 0;
 
+    Eigen::VectorXd fx = x0;
+    Eigen::VectorXd dxdt = x0;
+    
     std::cout << "\nInitial conditions: \n" << x0 << "\n";
-    //Eigen::VectorXd x = Solvex::BFD1Solver(pde, x0, 0, 100);
-    Eigen::VectorXd x = Solvex::NLESolver(ode, x0);
-    std::cout << "\nFinal solution: \n" << x << "\n";
+    Eigen::VectorXd x = Solvex::BDF1Solver(ode, x0, 0, 5);
+    Eigen::VectorXd bdf2_x = Solvex::BDF2Solver(ode, x0, 0, 5);
+    
+    std::cout << "\nBDF1 solution: \n" << x << "\n";
+    std::cout << "\nBDF1 err\n x[0]: " << 1.11159 - x[0] << "\tx[1]: " << 1.69654 - x[1] << "\n";
+
+    std::cout << "\nBDF2 solution: \n" << bdf2_x << "\n";
+    std::cout << "\nBDF2 err\n x[0]: " << 1.11159 - bdf2_x[0] << "\tx[1]: " << 1.69654 - bdf2_x[1] << "\n";
+    
 }

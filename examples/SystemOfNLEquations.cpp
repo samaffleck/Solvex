@@ -1,3 +1,62 @@
+// C++ includes
+#include <iostream>
+
+#include "Solvex/Solvex.h"
+
+// autodiff include
+#include <autodiff/forward/real.hpp>
+#include <autodiff/forward/real/eigen.hpp>
+using namespace autodiff;
+
+
+// Your ODE functor, unchanged
+struct ODE
+{
+    double A = 1.0;
+    double B = 2.0;
+    void operator()(autodiff::real t, const VectorXreal& x, VectorXreal& dxdt) const
+    {
+        dxdt(0) = 0.2 * x(1);
+        dxdt(1) = (A / B) * x(0);
+    }
+};
+
+VectorXreal BDF(const VectorXreal& x, const VectorXreal& x_dt, VectorXreal& Fx, ODE& ode, autodiff::real time, autodiff::real dt)
+{
+    int N = x.size();
+
+    VectorXreal dx_dt(N); // not Eigen::VectorXd
+    ode(time, x, dx_dt);
+
+    for (int n = 0; n < N; ++n)
+        Fx(n) = x(n) - x_dt(n) + dt * dx_dt(n);
+
+    return Fx;
+}
+
+int main()
+{
+    ODE ode;
+
+    // Now use ode_wrap with autodiff
+    real t = 0.0;                  // if you want to treat t as constant, keep it as a plain double
+    real dt = 1.0;                  // if you want to treat t as constant, keep it as a plain double
+    VectorXreal x(2);             // autodiff variable for the state
+    x << 1.0, 2.0;
+
+    VectorXreal x_dt = x;             
+
+    VectorXreal fx(2);
+
+    Eigen::MatrixXd J = jacobian(BDF, autodiff::wrt(x), at(x, x_dt, fx, ode, t, dt), fx);
+
+    // Print
+    std::cout << "fx = \n" << fx << '\n';
+    std::cout << "Jacobian = \n" << J << '\n';
+}
+
+
+/*
 #include <iostream>
 
 #include "Solvex/Solvex.h"
@@ -95,3 +154,4 @@ int main()
     std::cout << "Solution:\n" << solution << std::endl;
     return 0;
 }
+*/

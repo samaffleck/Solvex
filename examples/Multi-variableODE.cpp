@@ -129,7 +129,7 @@ struct System
         return total;
     }
 
-    void operator()(const Eigen::VectorXd& x, Eigen::VectorXd& dxdt)
+    void operator()(double time, const Eigen::VectorXd& x, Eigen::VectorXd& dxdt)
     {
        int Nt = 0, Np = 0;
 
@@ -206,14 +206,11 @@ int main()
 
     std::cout << "x0: " << x0 << "\n";
 
-    Eigen::VectorXd NLE_solution = Solvex::NLESolver(system, x0);
     Eigen::VectorXd BDF1_solution = Solvex::BDF1Solver(system, x0, 0, 1000);
     Eigen::VectorXd BDF2_solution = Solvex::BDF2Solver(system, x0, 0, 1000);
 
-    double errorBDF1 = (NLE_solution - BDF1_solution).norm();
-    double errorBDF2 = (NLE_solution - BDF2_solution).norm();
-
+    double errorBDF1 = (BDF2_solution - BDF1_solution).norm();
+    
     std::cout << "\nError BDF1:\n" << errorBDF1 << std::endl;
-    std::cout << "\nError BDF2:\n" << errorBDF2 << std::endl;
     return 0;
 }

@@ -6,6 +6,8 @@
 
 namespace Solvex
 {
+    using ODEFunc = std::function<void(double t, const Eigen::VectorXd& x, Eigen::VectorXd& Fx)>;
+    
     using Func = std::function<void(const Eigen::VectorXd& x, Eigen::VectorXd& Fx)>;
 
     struct NewtonSolverMessage
@@ -20,19 +22,19 @@ namespace Solvex
         const Eigen::VectorXd& y, 
         Eigen::VectorXd& x);
 
-    Eigen::VectorXd BDF1Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF1Solver(const ODEFunc& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
-        double absolute_tolerance = 1e-6,
-        double relative_tolerance = 1e-6,
+        double absolute_tolerance = 1e-10,
+        double relative_tolerance = 1e-10,
         int num_of_sup_diag = 1,
         int num_of_sub_diag = 1,
-        int max_num_of_newton_itterations = 500,
+        int max_num_of_newton_itterations = 100,
         int jacobian_update_frequency = 1,
         double newton_relaxation_factor = 1.0);
 
-    Eigen::VectorXd BDF2Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF2Solver(const ODEFunc& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,

@@ -1,5 +1,8 @@
 #include "Solvex/Solvex.h"
 
+#include "autodiff/forward/dual/dual.hpp"
+#include <autodiff/forward/real/eigen.hpp>
+
 #include <iostream>
 
 namespace Solvex
@@ -114,37 +117,44 @@ namespace Solvex
         Eigen::VectorXd& x, 
         double relax_factor)
     {
-        Eigen::VectorXd dx = J.colPivHouseholderQr().solve(-Fx);
+        Eigen::VectorXd dx = J.fullPivLu().solve(-Fx);
+        //Eigen::VectorXd dx1 = J.llt().solve(-Fx);
+        //Eigen::VectorXd dx2 = J.ldlt().solve(-Fx);
+        //Eigen::VectorXd dx3 = J.householderQr().solve(-Fx);
+
         x += dx * relax_factor;
     }
 
-    void BDF1Residual(const Func& f_dxdt,
+    void BDF1Residual(const ODEFunc& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         Eigen::VectorXd& Fx,
+        double time,
         double dt)
     {
         int N = x.size();
         Eigen::VectorXd dx_dt(N); // Create the dx_dt vector
-        f_dxdt(x, dx_dt);
+        f_dxdt(time, x, dx_dt);
 
         for (int n = 0; n < N; ++n)
         {
             Fx(n) = x(n) - x_dt(n) - dt * dx_dt(n); 
         }
     }
+    
 
-    void BDF2Residual(const Func& f_dxdt,
+    void BDF2Residual(const ODEFunc& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         const Eigen::VectorXd& x_dt2,
         Eigen::VectorXd& Fx,
+        double time,
         double dt,
         double dt2)
     {
         int N = x.size();
         Eigen::VectorXd dx_dt(N); // Create the dx_dt vector
-        f_dxdt(x, dx_dt);
+        f_dxdt(time, x, dx_dt);
 
         double w = ( dt ) / ( dt2 );
         double b = ( 1.0 + w ) * ( 1.0 + w ) / ( 1.0 + 2.0 * w );
@@ -157,11 +167,12 @@ namespace Solvex
         }
     }
 
-    void BDF1ApproximateJacobian(const Func& f_dxdt,
+    void BDF1ApproximateJacobian(const ODEFunc& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         Eigen::VectorXd& Fx,
         Eigen::MatrixXd& J,
+        double time,
         double dt,
         int num_of_sup_diag,
         int num_of_sub_diag)
@@ -179,9 +190,10 @@ namespace Solvex
         {
             for (int j = 0; j < N; ++j)
             {
-                h = std::max( eps, eps * fabs( x(j) ) ); // avoids h = 0 leading to divide by 0 error
+                h = std::max(1e-8, 1e-6 * fabs(x(j)));
+                //h = std::max( eps, eps * fabs( x(j) ) ); // avoids h = 0 leading to divide by 0 error
                 del_x(j) = x(j) + h;
-                BDF1Residual(f_dxdt, del_x, x_dt, del_Fx, dt);
+                BDF1Residual(f_dxdt, del_x, x_dt, del_Fx, time, dt);
                 del_x(j) = x(j); // reset
                 for (int i = 0; i < N; ++i)
                 {
@@ -198,7 +210,7 @@ namespace Solvex
                     h = std::max( eps, eps * fabs( x(j) ) ); // avoids h = 0 leading to divide by 0 error
                     del_x(j) = x(j) + h;
                 }
-                BDF1Residual(f_dxdt, del_x, x_dt, del_Fx, dt);
+                BDF1Residual(f_dxdt, del_x, x_dt, del_Fx, time, dt);
                 for (int j = k; j < N; j += msum)
                 {
                     del_x(j) = x(j); // reset
@@ -221,12 +233,13 @@ namespace Solvex
         }
     }
 
-    void BDF2ApproximateJacobian(const Func& f_dxdt,
+    void BDF2ApproximateJacobian(const ODEFunc& f_dxdt,
         Eigen::VectorXd& x,
         const Eigen::VectorXd& x_dt,
         const Eigen::VectorXd& x_dt2,
         Eigen::VectorXd& Fx,
         Eigen::MatrixXd& J,
+        double time,
         double dt,
         double dt2,
         int num_of_sup_diag,
@@ -247,7 +260,7 @@ namespace Solvex
             {
                 h = std::max( eps, eps * fabs( x(j) ) ); // avoids h = 0 leading to divide by 0 error
                 del_x(j) = x(j) + h;
-                BDF2Residual(f_dxdt, del_x, x_dt, x_dt2, del_Fx, dt, dt2);
+                BDF2Residual(f_dxdt, del_x, x_dt, x_dt2, del_Fx, time, dt, dt2);
                 del_x(j) = x(j); // reset
                 for (int i = 0; i < N; ++i)
                 {
@@ -264,7 +277,7 @@ namespace Solvex
                     h = std::max( eps, eps * fabs( x(j) ) ); // avoids h = 0 leading to divide by 0 error
                     del_x(j) = x(j) + h;
                 }
-                BDF2Residual(f_dxdt, del_x, x_dt, x_dt2, del_Fx, dt, dt2);
+                BDF2Residual(f_dxdt, del_x, x_dt, x_dt2, del_Fx, time, dt, dt2);
                 for (int j = k; j < N; j += msum)
                 {
                     del_x(j) = x(j); // reset
@@ -287,11 +300,12 @@ namespace Solvex
         }
     }
 
-    NewtonSolverMessage BDF1NewtonSolver(const Func& f_dxdt,
+    NewtonSolverMessage BDF1NewtonSolver(const ODEFunc& f_dxdt,
         Eigen::VectorXd& x, 
         const Eigen::VectorXd& x_dt, 
         Eigen::VectorXd& Fx, 
         Eigen::MatrixXd& J,
+        double time,
         double dt,
         int num_of_sup_diag,
         int num_of_sub_diag,
@@ -306,34 +320,27 @@ namespace Solvex
         double error = abs_tol * 10;
         int rank = 1 + num_of_sub_diag + num_of_sup_diag;
 
-        BDF1Residual(f_dxdt, x, x_dt, Fx, dt);
-        BDF1ApproximateJacobian(f_dxdt, x, x_dt, Fx, J, dt, num_of_sup_diag, num_of_sub_diag);
-
         while (!isConverged && itt <= max_itterations)
         {
-            BDF1Residual(f_dxdt, x, x_dt, Fx, dt);
+            BDF1Residual(f_dxdt, x, x_dt, Fx, time, dt);
             if (itt % jac_update_freq == 0) // update jacobian evey x itterations. By default, it is updated every itteration
             {
-                BDF1ApproximateJacobian(f_dxdt, x, x_dt, Fx, J, dt, num_of_sup_diag, num_of_sub_diag);
-            }
-
-            if (rank <= 3)
-            {
-                NewtonItterationTDMA(J, Fx, x, relax_factor);
-            }
-            else
-            {
-                NewtonItteration(J, Fx, x, relax_factor);
+                BDF1ApproximateJacobian(f_dxdt, x, x_dt, Fx, J, time, dt, num_of_sup_diag, num_of_sub_diag);
             }
             
+            NewtonItteration(J, Fx, x, relax_factor);
+            
             double allowedError = abs_tol + rel_tol * x.norm();
-            BDF1Residual(f_dxdt, x, x_dt, Fx, dt);
+            BDF1Residual(f_dxdt, x, x_dt, Fx, time, dt);
             error = Fx.norm(); 
             if (error < allowedError)
                 isConverged = true;
             
             itt++;
         }
+
+        std::cout << "\nNumber of itterations = " << itt;
+        std::cout << "\nError = " << error;
 
         std::string errMsg{};
         if (itt >= max_itterations)
@@ -342,12 +349,13 @@ namespace Solvex
         return {isConverged, itt + 1, error, errMsg};
     }
 
-    NewtonSolverMessage BDF2NewtonSolver(const Func& f_dxdt,
+    NewtonSolverMessage BDF2NewtonSolver(const ODEFunc& f_dxdt,
         Eigen::VectorXd& x, 
         const Eigen::VectorXd& x_dt, 
         const Eigen::VectorXd& x_dt2, 
         Eigen::VectorXd& Fx, 
         Eigen::MatrixXd& J,
+        double time,
         double dt,
         double dt2,
         int num_of_sup_diag,
@@ -363,26 +371,16 @@ namespace Solvex
         double error = abs_tol * 10;
         int rank = 1 + num_of_sub_diag + num_of_sup_diag;
 
-        BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, dt, dt2);
-        BDF2ApproximateJacobian(f_dxdt, x, x_dt, x_dt2, Fx, J, dt, dt2, num_of_sup_diag, num_of_sub_diag);
-
         while (!isConverged && itt <= max_itterations)
         {
-            BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, dt, dt2);
+            BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, time, dt, dt2);
             if (itt % jac_update_freq == 0) // update jacobian evey x itterations. By default, it is updated every itteration
-                BDF2ApproximateJacobian(f_dxdt, x, x_dt, x_dt2, Fx, J, dt, dt2, num_of_sup_diag, num_of_sub_diag);
+                BDF2ApproximateJacobian(f_dxdt, x, x_dt, x_dt2, Fx, J, time, dt, dt2, num_of_sup_diag, num_of_sub_diag);
 
-            if (rank <= 3)
-            {
-                NewtonItterationTDMA(J, Fx, x, relax_factor);
-            }
-            else
-            {
-                NewtonItteration(J, Fx, x, relax_factor);
-            }
-
+            NewtonItteration(J, Fx, x, relax_factor);
+            
             double allowedError = abs_tol + rel_tol * x.norm();
-            BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, dt, dt2);
+            BDF2Residual(f_dxdt, x, x_dt, x_dt2, Fx, time, dt, dt2);
             error = Fx.norm(); 
             if (error < allowedError)
                 isConverged = true;
@@ -397,7 +395,7 @@ namespace Solvex
         return {isConverged, itt + 1, error, errMsg};
     }
 
-    Eigen::VectorXd BDF1Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF1Solver(const ODEFunc& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
@@ -409,7 +407,7 @@ namespace Solvex
         int jacobian_update_frequency,
         double newton_relaxation_factor)
     {
-        double dt0 = 1.0;
+        double dt0 = 0.1;
         double dt = dt0;
         double minimum_dt = 1e-6;
         double time = startTime;
@@ -419,14 +417,22 @@ namespace Solvex
         Eigen::VectorXd x_dt = x0;      // Copy the initial conditions into our solution vector at the previous time step
         Eigen::VectorXd Fx(N);          // This vector stores the residuals
         Eigen::MatrixXd J(N, N);        // (N x N) Jacobian matrix
+        J.setZero();
+        Fx.setZero();
 
         while (time < endTime && dt > minimum_dt)
         {
+            if (time + dt > endTime)
+            {
+                dt = (endTime - time);
+            }
+
             auto stepResult = BDF1NewtonSolver(f_dxdt, 
                 x, 
                 x_dt, 
                 Fx, 
-                J, 
+                J,
+                time + dt,
                 dt, 
                 num_of_sup_diag, 
                 num_of_sub_diag, 
@@ -441,21 +447,23 @@ namespace Solvex
                 x_dt = x;       // Update the solution vector
                 time += dt;     // Increment step time
 
-                std::cout << "Time = " << time << "\ndt = \n" << dt << "\n"; 
+                std::cout << "\nTime = " << time << "\ndt = " << dt << "\n"; 
 
-                dt *= 2;    // On successful steps, double the step size.
+                //dt *= 2;    // On successful steps, double the step size.
             }
             else
             {
-                x = x_dt;       // reset the solution vector
-                dt /= 2;        // On unsuccessful steps, halve the time step.
+                std::cout << "\n\nFailed.\n";
+                return x;
+                //x = x_dt;       // reset the solution vector
+                //dt /= 2;        // On unsuccessful steps, halve the time step.
             }
         }
 
         return x;
     }
 
-    Eigen::VectorXd BDF2Solver(const Func& f_dxdt,
+    Eigen::VectorXd BDF2Solver(const ODEFunc& f_dxdt,
         const Eigen::VectorXd& x0,
         double startTime,
         double endTime,
@@ -467,7 +475,7 @@ namespace Solvex
         int jacobian_update_frequency,
         double newton_relaxation_factor)
     {
-        double dt0 = 1.0;
+        double dt0 = 0.1;
         double dt = dt0;
         double dt2 = dt0;
         double minimum_dt = 1e-6;
@@ -479,15 +487,28 @@ namespace Solvex
         Eigen::VectorXd x_dt2 = x0;      // Copy the initial conditions into our solution vector at the previous time step
         Eigen::VectorXd Fx(N);          // This vector stores the residuals
         Eigen::MatrixXd J(N, N);        // (N x N) Jacobian matrix
+        J.setZero();
+        Fx.setZero();
+
+        // For the first step use BDF1
+        x = BDF1Solver(f_dxdt, x0, startTime, dt, absolute_tolerance, relative_tolerance, num_of_sup_diag, num_of_sub_diag, max_num_of_newton_itterations, jacobian_update_frequency, newton_relaxation_factor);
+        x_dt = x;
+        time += dt;
 
         while (time < endTime && dt > minimum_dt)
         {
+            if (time + dt > endTime)
+            {
+                dt = (endTime - time);
+            }
+
             auto stepResult = BDF2NewtonSolver(f_dxdt, 
                 x, 
                 x_dt, 
                 x_dt2, 
                 Fx, 
                 J, 
+                time + dt,
                 dt, 
                 dt2, 
                 num_of_sup_diag, 
@@ -509,12 +530,14 @@ namespace Solvex
 
                 std::cout << "Time = " << time << "\ndt = \n" << dt << "\n"; 
 
-                dt *= 2;        // On successful steps, double the step size.
+                //dt *= 2;        // On successful steps, double the step size.
             }
             else
             {
-                x = x_dt;       // reset the solution vector
-                dt /= 2;        // On unsuccessful steps, halve the time step.
+                std::cout << "\n\nFailed.\n";
+                return x;
+                //x = x_dt;       // reset the solution vector
+                //dt /= 2;        // On unsuccessful steps, halve the time step.
             }
         }
 
