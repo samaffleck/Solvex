@@ -1,78 +1,64 @@
 // C++ includes
 #include <iostream>
+#include <fstream>
 
+// DAE-CPP includes
 #include "dae-cpp/solver.hpp"
 
 // dae-cpp namespace
 using namespace daecpp;
 
-namespace FVM
-{
-    double div(const state_type& x, int i)
-    {
-        return (x(i + 1) - 2 * x(i) + x(i - 1)).val();
-    }
-}
-
-
 struct SegmentIndex
 {
-    int startIndex;
-    int endIndex;
+    int             startIndex{};
+    int             endIndex{};
 };
 
-struct Equations
+struct Equation
 {
-    SegmentIndex    T{};
-    SegmentIndex    P{};
-    SegmentIndex    U{};
+    SegmentIndex    index{};        // Start and end index
+    double          t0{};           // Initial condition
+};
+
+struct SystemOfEquation
+{
+    Equation        T{};            // Temperature
+    Equation        P{};            // Pressure
+    Equation        U{};            // Velocity
 };
 
 struct MySystem
 {
     int_type        Nvar = 3;       // Number of variables to solve for. E.g. temp. and conc.   
     int_type        N = 40;         // Number of cells
-    int_type        Nc = 42;        // Number of cells for cell centered variables: N + 2 ghost cells
-    int_type        Nf = 41;        // Number of cells for cell face variables: N + 1 
     double          L = 1.0;        // Length of domain [m]
     double          dx = 1.0;       // Cell width [m]
     double          K = 1.0e-9;     // Permeability [m2/s]
     double          vis = 1.0e-5;   // Viscosity [Pa-s]
 
-    double          T0 = 293.0;     // Initial temperature
-    double          P0 = 101325.0;  // Initial pressure
-    double          U0 = 1.0;       // Initial velocity
-
-    SegmentIndex    T{};
-    SegmentIndex    P{};
-    SegmentIndex    U{};
-
-    std::vector<state_vector> T_sol{};
-    std::vector<state_vector> P_sol{};
-    std::vector<state_vector> U_sol{};
-    std::vector<state_vector> t_sol{};
+    SystemOfEquation eq;
 
     void initialise()
     {
         dx = L / N;
 
-        Nc = N + 2; // add two ghost cells 
-        Nf = N + 1; // cell faces
+        int Nc = N + 2; // add two ghost cells 
+        int Nf = N + 1; // cell faces
 
-        T.startIndex = 0;
-        T.endIndex = T.startIndex + Nc - 1;
+        eq.T.index.startIndex = 0;
+        eq.T.index.endIndex = eq.T.index.startIndex + Nc - 1;
 
-        P.startIndex = T.endIndex + 1;
-        P.endIndex = P.startIndex + Nc - 1;
+        eq.P.index.startIndex = eq.T.index.endIndex + 1;
+        eq.P.index.endIndex = eq.P.index.startIndex + Nc - 1;
 
-        U.startIndex = P.endIndex + 1;
-        U.endIndex = U.startIndex + Nf - 1;
+        eq.U.index.startIndex = eq.P.index.endIndex + 1;
+        eq.U.index.endIndex = eq.U.index.startIndex + Nf - 1;
     }
 
     void updateT(state_type& f, const state_type& x) const
     {
-        int startIndex = T.startIndex;
-        int endIndex = T.endIndex;
+        int startIndex = eq.T.index.startIndex;
+        int endIndex = eq.T.index.endIndex;
 
         f(startIndex) = 298 - x(startIndex);
 
@@ -86,11 +72,11 @@ struct MySystem
 
     void updateP(state_type& f, const state_type& x) const
     {
-        int startIndex = P.startIndex;
-        int endIndex = P.endIndex;
+        int startIndex = eq.P.index.startIndex;
+        int endIndex = eq.P.index.endIndex;
         double _dx = 1 / dx;
         double _vis = 1 / vis;
-        int u = U.startIndex + 1;
+        int u = eq.U.index.startIndex + 1;
 
         f(startIndex) = 101425 - x(startIndex);
 
@@ -103,7 +89,6 @@ struct MySystem
             autodiff::real dPdx_w = _dx * (x(i) - x(i - 1));
 
             f(i) = K * _dx * _vis * (dPdx_e * Pe - dPdx_w * Pw);
-            //f(i) = _dx * (x[u] * Pe - x[u - 1] * Pw);
 
             u++;
         }
@@ -115,9 +100,9 @@ struct MySystem
     {
         double  _dx = 1 / dx;
         double  _vis = 1 / vis;
-        int     p = P.startIndex;
-        int     u = U.startIndex;
-        int     len = U.endIndex - U.startIndex + 1;
+        int     p = eq.P.index.startIndex;
+        int     u = eq.U.index.startIndex;
+        int     len = eq.U.index.endIndex - eq.U.index.startIndex + 1;
 
         for (int i = 0; i < len; ++i)
         {
@@ -132,38 +117,38 @@ struct MySystem
 
     state_vector getInitialConditions() const
     {
-        int Ntot = U.endIndex + 1;
+        int Ntot = eq.U.index.endIndex + 1;
         state_vector x(Ntot);
 
-        for (int i = T.startIndex; i <= T.endIndex; ++i)
+        for (int i = eq.T.index.startIndex; i <= eq.T.index.endIndex; ++i)
         {
-            x[i] = T0;
+            x[i] = eq.T.t0;
         }
 
-        for (int i = P.startIndex; i <= P.endIndex; ++i)
+        for (int i = eq.P.index.startIndex; i <= eq.P.index.endIndex; ++i)
         {
-            x[i] = P0;
+            x[i] = eq.P.t0;
         }
 
-        for (int i = U.startIndex; i <= U.endIndex; ++i)
+        for (int i = eq.U.index.startIndex; i <= eq.U.index.endIndex; ++i)
         {
-            x[i] = U0;
+            x[i] = eq.U.t0;
         }
 
         return x;
     }
 
-    void setMassMatrix(sparse_matrix& M)
+    void setMassMatrix(sparse_matrix& M) const
     {
-        int Ntot = U.endIndex + 1;
+        int Ntot = eq.U.index.endIndex + 1;
         M.reserve(Ntot);
 
-        for (int i = T.startIndex; i <= T.endIndex; ++i)
+        for (int i = eq.T.index.startIndex; i <= eq.T.index.endIndex; ++i)
         {
             M(i, i, 1.0);
         }
 
-        for (int i = P.startIndex; i <= P.endIndex; ++i)
+        for (int i = eq.P.index.startIndex; i <= eq.P.index.endIndex; ++i)
         {
             M(i, i, 1.0);
         }
@@ -172,12 +157,12 @@ struct MySystem
 
 class MyMassMatrix
 {
-    MySystem m_system;
+    MySystem& m_system;
 
 public:
-    explicit MyMassMatrix(const MySystem& system) : m_system(system) {}
+    explicit MyMassMatrix(MySystem& system) : m_system(system) {}
 
-    void operator()(sparse_matrix& M, const double t)
+    void operator()(sparse_matrix& M, const double t) const
     {
         m_system.setMassMatrix(M);
     }
@@ -185,12 +170,12 @@ public:
 
 class MyRHS
 {
-    MySystem m_system;
+    MySystem& m_system;
 
 public:
-    explicit MyRHS(const MySystem& system) : m_system(system) {}
+    explicit MyRHS(MySystem& system) : m_system(system) {}
 
-    void operator()(state_type& f, const state_type& x, const double t)
+    void operator()(state_type& f, const state_type& x, const double t) const
     {
         m_system.updateT(f, x);
         m_system.updateP(f, x);
@@ -233,42 +218,102 @@ state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
     return var;
 }
 
+struct VariableFiles
+{
+    VariableFiles()
+    {
+        m_fileT.open("T.csv");
+        m_fileP.open("P.csv");
+        m_fileU.open("U.csv");
+    }
+    ~VariableFiles()
+    {
+
+        m_fileT.close();
+        m_fileP.close();
+        m_fileU.close();
+    }
+
+    std::ofstream m_fileT{};
+    std::ofstream m_fileP{};
+    std::ofstream m_fileU{};
+};
+
 class MySolutionManager
 {
-    MySystem& m_system;
+    SystemOfEquation& m_eq;
+    VariableFiles& m_files;
 
 public:
-    explicit MySolutionManager(MySystem& system) : m_system(system) {}
-
+    MySolutionManager(SystemOfEquation& eq, VariableFiles& files) : m_eq(eq), m_files(files) {}
+    
     int operator()(const state_vector& x, const double t)
     {
-        m_system.T_sol.emplace_back(getCellCenterVariable(x, m_system.T));
-        m_system.P_sol.emplace_back(getCellCenterVariable(x, m_system.P));
-        m_system.U_sol.emplace_back(getCellFaceVariable(x, m_system.U));
+        auto Tvals = getCellCenterVariable(x, m_eq.T.index);
+        auto Pvals = getCellCenterVariable(x, m_eq.P.index);
+        auto Uvals = getCellFaceVariable(x, m_eq.U.index);
 
-        printVector(x);
+        m_files.m_fileT << t;           
+        for (int i = 0; i < Tvals.size(); i++)
+            m_files.m_fileT << "," << Tvals[i];
+        m_files.m_fileT << "\n";
+        
+        m_files.m_fileP << t;
+        for (int i = 0; i < Pvals.size(); i++)
+            m_files.m_fileP << "," << Pvals[i];
+        m_files.m_fileP << "\n";
+        
+        m_files.m_fileU << t;
+        for (int i = 0; i < Uvals.size(); i++)
+            m_files.m_fileU << "," << Uvals[i];
+        m_files.m_fileU << "\n";
 
         return 0;
     }
 };
 
+
+struct Study
+{
+    MySystem        m_system;
+    SolverOptions   m_solverOptions;
+    double          m_time;
+};
+
+
+void RunStudy(Study& study)
+{
+    study.m_system.initialise();
+
+    state_vector x0 = study.m_system.getInitialConditions();
+    VariableFiles files;
+
+    solve(
+        MyMassMatrix(study.m_system), 
+        MyRHS(study.m_system), 
+        x0, 
+        study.m_time, 
+        MySolutionManager(study.m_system.eq, files), 
+        study.m_solverOptions
+    );
+}
+
+
 int main()
 {
-    MySystem system;
-    system.N = 10;
+    Study study;
+    study.m_system.N = 10;
+    study.m_system.eq.T.t0 = 293.0;
+    study.m_system.eq.P.t0 = 101325.0;
+    study.m_system.eq.U.t0 = 0.0;
 
-    system.initialise();
-    state_vector x0 = system.getInitialConditions();
+    study.m_time = 100.0;
 
-    double t_end = 100.0;
-    SolverOptions opt;
-    opt.verbosity = verbosity::normal;        // Prints computation time and basic info
-    opt.solution_variability_control = false; // Switches off solution variability control for better performance
-    opt.BDF_order = 2;
-    opt.atol = 1e-10;
-    opt.rtol = 1e-10;
+    study.m_solverOptions.verbosity = verbosity::normal;        
+    study.m_solverOptions.solution_variability_control = false; 
+    study.m_solverOptions.BDF_order = 4;
+    study.m_solverOptions.atol = 1e-10;
+    study.m_solverOptions.rtol = 1e-10;
 
-    int status = solve(MyMassMatrix(system), MyRHS(system), x0, t_end, MySolutionManager(system), opt);
-
-    return status;
+    RunStudy(study);
 }
