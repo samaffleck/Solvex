@@ -18,6 +18,15 @@ struct Equation
 {
     SegmentIndex    index{};        // Start and end index
     double          t0{};           // Initial condition
+    std::ofstream   file{};         // csv file for log data
+
+    void log(const state_vector& x, const double t)
+    {
+        file << t;
+        for (int i = 0; i < x.size(); i++)
+            file << "," << x[i];
+        file << "\n";
+    }
 };
 
 struct SystemOfEquation
@@ -25,6 +34,32 @@ struct SystemOfEquation
     Equation        T{};            // Temperature
     Equation        P{};            // Pressure
     Equation        U{};            // Velocity
+
+    void initialise(int_type N)
+    {
+        int Nc = N + 2; // add two ghost cells 
+        int Nf = N + 1; // cell faces
+
+        T.index.startIndex = 0;
+        T.index.endIndex = T.index.startIndex + Nc - 1;
+
+        P.index.startIndex = T.index.endIndex + 1;
+        P.index.endIndex = P.index.startIndex + Nc - 1;
+
+        U.index.startIndex = P.index.endIndex + 1;
+        U.index.endIndex = U.index.startIndex + Nf - 1;
+
+        T.file.open("T.csv");
+        P.file.open("P.csv");
+        U.file.open("U.csv");
+    }
+
+    void cleanUp()
+    {
+        T.file.close();
+        P.file.close();
+        U.file.close();
+    }
 };
 
 struct MySystem
@@ -42,17 +77,12 @@ struct MySystem
     {
         dx = L / N;
 
-        int Nc = N + 2; // add two ghost cells 
-        int Nf = N + 1; // cell faces
+        eq.initialise(N);
+    }
 
-        eq.T.index.startIndex = 0;
-        eq.T.index.endIndex = eq.T.index.startIndex + Nc - 1;
-
-        eq.P.index.startIndex = eq.T.index.endIndex + 1;
-        eq.P.index.endIndex = eq.P.index.startIndex + Nc - 1;
-
-        eq.U.index.startIndex = eq.P.index.endIndex + 1;
-        eq.U.index.endIndex = eq.U.index.startIndex + Nf - 1;
+    void cleanUp()
+    {
+        eq.cleanUp();
     }
 
     void updateT(state_type& f, const state_type& x) const
@@ -218,6 +248,7 @@ state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
     return var;
 }
 
+/*
 struct VariableFiles
 {
     VariableFiles()
@@ -238,14 +269,14 @@ struct VariableFiles
     std::ofstream m_fileP{};
     std::ofstream m_fileU{};
 };
+*/
 
 class MySolutionManager
 {
     SystemOfEquation& m_eq;
-    VariableFiles& m_files;
 
 public:
-    MySolutionManager(SystemOfEquation& eq, VariableFiles& files) : m_eq(eq), m_files(files) {}
+    explicit MySolutionManager(SystemOfEquation& eq) : m_eq(eq) {}
     
     int operator()(const state_vector& x, const double t)
     {
@@ -253,20 +284,9 @@ public:
         auto Pvals = getCellCenterVariable(x, m_eq.P.index);
         auto Uvals = getCellFaceVariable(x, m_eq.U.index);
 
-        m_files.m_fileT << t;           
-        for (int i = 0; i < Tvals.size(); i++)
-            m_files.m_fileT << "," << Tvals[i];
-        m_files.m_fileT << "\n";
-        
-        m_files.m_fileP << t;
-        for (int i = 0; i < Pvals.size(); i++)
-            m_files.m_fileP << "," << Pvals[i];
-        m_files.m_fileP << "\n";
-        
-        m_files.m_fileU << t;
-        for (int i = 0; i < Uvals.size(); i++)
-            m_files.m_fileU << "," << Uvals[i];
-        m_files.m_fileU << "\n";
+        m_eq.T.log(Tvals, t);
+        m_eq.P.log(Pvals, t);
+        m_eq.U.log(Uvals, t);
 
         return 0;
     }
@@ -283,19 +303,24 @@ struct Study
 
 void RunStudy(Study& study)
 {
+    // Initialise
     study.m_system.initialise();
-
+    
+    // Generate the initial condition vector
     state_vector x0 = study.m_system.getInitialConditions();
-    VariableFiles files;
-
+    
+    // Solve the system of ODEs
     solve(
         MyMassMatrix(study.m_system), 
         MyRHS(study.m_system), 
         x0, 
         study.m_time, 
-        MySolutionManager(study.m_system.eq, files), 
+        MySolutionManager(study.m_system.eq), 
         study.m_solverOptions
     );
+
+    // Clean up
+    study.m_system.cleanUp();
 }
 
 
