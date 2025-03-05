@@ -90,46 +90,47 @@ struct MySystem
         int startIndex = eq.T.index.startIndex;
         int endIndex = eq.T.index.endIndex;
 
-        f(startIndex) = 298 - x(startIndex);
+        f(startIndex) = autodiff::real(298) - x(startIndex);
 
         for (int i = startIndex + 1; i < endIndex; ++i)
         {
-            f(i) = x(i + 1) - 2 * x(i) + x(i - 1);
+            f(i) = x(i + 1) - autodiff::real(2) * x(i) + x(i - 1);
         }
 
-        f(endIndex) = 273 - x(endIndex);
+        f(endIndex) = autodiff::real(273) - x(endIndex);
     }
 
     void updateP(state_type& f, const state_type& x) const
     {
         int startIndex = eq.P.index.startIndex;
         int endIndex = eq.P.index.endIndex;
-        double _dx = 1 / dx;
-        double _vis = 1 / vis;
+        autodiff::real _dx = 1 / dx;
         int u = eq.U.index.startIndex + 1;
-
-        f(startIndex) = 101425 - x(startIndex);
+        autodiff::real K1 = K / (dx * vis);
+        
+        f(startIndex) = autodiff::real(101425) - x(startIndex);
 
         for (int i = startIndex + 1; i < endIndex; ++i)
         {
-            autodiff::real Pe = 0.5 * (x(i) + x(i + 1));
-            autodiff::real Pw = 0.5 * (x(i) + x(i - 1));
+            autodiff::real Pe = autodiff::real(0.5) * (x(i) + x(i + 1));
+            autodiff::real Pw = autodiff::real(0.5) * (x(i) + x(i - 1));
 
             autodiff::real dPdx_e = _dx * (x(i + 1) - x(i));
             autodiff::real dPdx_w = _dx * (x(i) - x(i - 1));
 
-            f(i) = K * _dx * _vis * (dPdx_e * Pe - dPdx_w * Pw);
+            f(i) = K1 * (dPdx_e * Pe - dPdx_w * Pw);
 
             u++;
         }
 
-        f(endIndex) = 101325 - x(endIndex);
+        f(endIndex) = autodiff::real(101325) - x(endIndex);
     }
 
     void updateU(state_type& f, const state_type& x) const
     {
-        double  _dx = 1 / dx;
-        double  _vis = 1 / vis;
+        autodiff::real  _dx = 1 / dx;
+        autodiff::real  _vis = 1 / vis;
+        autodiff::real  K1 = K / vis;
         int     p = eq.P.index.startIndex;
         int     u = eq.U.index.startIndex;
         int     len = eq.U.index.endIndex - eq.U.index.startIndex + 1;
@@ -138,7 +139,7 @@ struct MySystem
         {
             autodiff::real dPdx = _dx * (x(p + 1) - x(p));
 
-            f(u) = x(u) + K * _vis * dPdx;
+            f(u) = x(u) + K1 * dPdx;
 
             u++;
             p++;
