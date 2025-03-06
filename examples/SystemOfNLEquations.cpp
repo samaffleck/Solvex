@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
+#include <memory>
 
 // DAE-CPP includes
 #include "dae-cpp/solver.hpp"
@@ -66,10 +67,13 @@ struct SystemOfEquation
 
 struct ISystemBlock
 {
-    SystemOfEquation    eq;
+    SystemOfEquation&   eq;
     double              L = 1.0;        // Length of domain [m]
     double              dx = 1.0;       // Cell width [m]
     int_type            N = 40;         // Number of cells
+
+    ISystemBlock(SystemOfEquation& eq) : eq(eq) {}
+    virtual ~ISystemBlock() = default;
 
     void initialise(int_type startIndex)
     {
@@ -109,7 +113,21 @@ struct ISystemBlock
         }
     }
 
-    void setMassMatrix(int startIndex, sparse_matrix& M) const
+    virtual void setMassMatrix(int startIndex, sparse_matrix& M) const = 0;
+    virtual void updateT(state_type& f, const state_type& x) const = 0;
+    virtual void updateP(state_type& f, const state_type& x) const = 0;
+    virtual void updateU(state_type& f, const state_type& x) const = 0;
+};
+
+struct PorousMedia : ISystemBlock
+{
+    double              K = 1.0e-9;     // Permeability [m2/s]
+    double              vis = 1.0e-5;   // Viscosity [Pa-s]
+
+    PorousMedia(SystemOfEquation& eq) : ISystemBlock(eq) {}
+    ~PorousMedia() = default;
+
+    void setMassMatrix(int startIndex, sparse_matrix& M) const override
     {
         int T_start = startIndex + eq.T.index.startIndex;
         int T_end = startIndex + eq.T.index.endIndex;
@@ -128,16 +146,6 @@ struct ISystemBlock
         }
     }
 
-    virtual void updateT(state_type& f, const state_type& x) const = 0;
-    virtual void updateP(state_type& f, const state_type& x) const = 0;
-    virtual void updateU(state_type& f, const state_type& x) const = 0;
-};
-
-struct PorousMedia : ISystemBlock
-{
-    double              K = 1.0e-9;     // Permeability [m2/s]
-    double              vis = 1.0e-5;   // Viscosity [Pa-s]
-    
     void updateT(state_type& f, const state_type& x) const override
     {
         int startIndex = eq.T.index.startIndex;
@@ -203,18 +211,19 @@ struct PorousMedia : ISystemBlock
 
 struct MySystem
 {
-    std::vector<ISystemBlock>               m_sys;
-    std::unordered_map<std::string, int>    m_map;
+    std::vector<std::unique_ptr<ISystemBlock>>  m_sys;
+    std::unordered_map<std::string, int>        m_map;
+    SystemOfEquation                            eq;
 
-    void addBlock(const std::string& name, ISystemBlock& block)
+    void addBlock(const std::string& name, std::unique_ptr<ISystemBlock> block)
     {
-        m_sys.push_back(block);
+        m_sys.emplace_back(std::move(block));
         m_map[name] = m_sys.size() - 1;
     }
 
     ISystemBlock& getBlock(const std::string& name)
     {
-        return m_sys[m_map[name]];
+        return *m_sys[m_map[name]];
     }
 
     void removeBlock(const std::string& name)
@@ -230,8 +239,8 @@ struct MySystem
 
         for (auto& block : m_sys)
         {
-            endIndex = startIndex + block.N - 1;
-            block.initialise(startIndex);
+            endIndex = startIndex + block->N - 1;
+            block->initialise(startIndex);
             startIndex = endIndex + 1;
         }
     }
@@ -240,7 +249,7 @@ struct MySystem
     {
         for (auto& block : m_sys)
         {
-            block.cleanUp();
+            block->cleanUp();
         }
     }
 
@@ -248,7 +257,7 @@ struct MySystem
     {
         for (auto& block : m_sys)
         {
-            block.updateT(f, x);
+            block->updateT(f, x);
         }
     }
 
@@ -256,7 +265,7 @@ struct MySystem
     {
         for (auto& block : m_sys)
         {
-            block.updateP(f, x);
+            block->updateP(f, x);
         }
     }
 
@@ -264,7 +273,7 @@ struct MySystem
     {
         for (auto& block : m_sys)
         {
-            block.updateU(f, x);
+            block->updateU(f, x);
         }
     }
 
@@ -276,9 +285,9 @@ struct MySystem
 
         for (auto& block : m_sys)
         {
-            size_t x_new_size = x.size() + block.eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            size_t x_new_size = x.size() + block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
             x.resize(x_new_size);
-            block.setInitialConditions(startIndex, x);
+            block->setInitialConditions(startIndex, x);
             startIndex = x_new_size - 1;
         }
 
@@ -288,13 +297,12 @@ struct MySystem
     void setMassMatrix(sparse_matrix& M) const
     {
         int startIndex = 0;
-        int sysSize = 0;
         M.reserve(100);
         
         for (auto& block : m_sys)
         {
-            size_t sysSize = block.eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
-            block.setMassMatrix(startIndex, M);
+            size_t sysSize = block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            block->setMassMatrix(startIndex, M);
             startIndex += sysSize;
         }
     }
@@ -407,7 +415,7 @@ void RunStudy(Study& study)
         MyRHS(study.m_system), 
         x0, 
         study.m_time, 
-        MySolutionManager(study.m_system.m_sys.eq), 
+        MySolutionManager(study.m_system.eq), 
         study.m_solverOptions
     );
 
@@ -419,11 +427,12 @@ void RunStudy(Study& study)
 int main()
 {
     Study study;
-    SystemBlock& sys = study.m_system.m_sys;
-    sys.N = 10;
-    sys.eq.T.t0 = 293.0;
-    sys.eq.P.t0 = 101325.0;
-    sys.eq.U.t0 = 0.0;
+    PorousMedia porousMedia(study.m_system.eq);
+    porousMedia.N = 10;
+    porousMedia.eq.T.t0 = 293.0;
+    porousMedia.eq.P.t0 = 101325.0;
+    porousMedia.eq.U.t0 = 0.0;
+    study.m_system.addBlock("PorousMedia", std::make_unique<PorousMedia>(porousMedia));
 
     study.m_time = 100.0;
 
