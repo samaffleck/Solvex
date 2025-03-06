@@ -84,19 +84,41 @@ struct ISystemBlock
 
     void setInitialConditions(int startIndex, state_vector& x) const
     {
-        for (int i = eq.T.index.startIndex; i <= eq.T.index.endIndex; ++i)
+        int T_start = startIndex + eq.T.index.startIndex;
+        int T_end = startIndex + eq.T.index.endIndex;
+
+        int P_start = startIndex + eq.P.index.startIndex;
+        int P_end = startIndex + eq.P.index.endIndex;
+
+        int U_start = startIndex + eq.U.index.startIndex;
+        int U_end = startIndex + eq.U.index.endIndex;
+
+        for (int i = T_start; i <= T_end; ++i)
         {
             x[i] = eq.T.t0;
         }
 
-        for (int i = eq.P.index.startIndex; i <= eq.P.index.endIndex; ++i)
+        for (int i = P_start; i <= P_end; ++i)
         {
             x[i] = eq.P.t0;
         }
 
-        for (int i = eq.U.index.startIndex; i <= eq.U.index.endIndex; ++i)
+        for (int i = U_start; i <= U_end; ++i)
         {
             x[i] = eq.U.t0;
+        }
+    }
+
+    void setMassMatrix(int startIndex, sparse_matrix& M) const
+    {
+        for (int i = startIndex + eq.T.index.startIndex; i <= m_sys.eq.T.index.endIndex; ++i)
+        {
+            M(i, i, 1.0);
+        }
+
+        for (int i = m_sys.eq.P.index.startIndex; i <= m_sys.eq.P.index.endIndex; ++i)
+        {
+            M(i, i, 1.0);
         }
     }
 
@@ -267,18 +289,7 @@ struct MySystem
         {
             size_t sysSize = block.eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
             block.setMassMatrix(startIndex, M);
-            startIndex += sysSize
-        }
-
-
-        for (int i = m_sys.eq.T.index.startIndex; i <= m_sys.eq.T.index.endIndex; ++i)
-        {
-            M(i, i, 1.0);
-        }
-
-        for (int i = m_sys.eq.P.index.startIndex; i <= m_sys.eq.P.index.endIndex; ++i)
-        {
-            M(i, i, 1.0);
+            startIndex += sysSize;
         }
     }
 };
