@@ -1,6 +1,7 @@
 // C++ includes
 #include <iostream>
 #include <fstream>
+#include <unordered_map>
 
 // DAE-CPP includes
 #include "dae-cpp/solver.hpp"
@@ -16,9 +17,9 @@ struct SegmentIndex
 
 struct Equation
 {
-    SegmentIndex    index{};        // Start and end index
-    double          t0{};           // Initial condition
     std::ofstream   file{};         // csv file for log data
+    double          t0{};           // Initial condition
+    SegmentIndex    index{};        // Start and end index
 
     void log(const state_vector& x, const double t)
     {
@@ -34,13 +35,14 @@ struct SystemOfEquation
     Equation        T{};            // Temperature
     Equation        P{};            // Pressure
     Equation        U{};            // Velocity
+    int_type        Nvar = 3;       // Number of variables to solve for. E.g. temp. and conc.   
 
-    void initialise(int_type N)
+    void initialise(int_type N, int_type startIndex)
     {
         int Nc = N + 2; // add two ghost cells 
         int Nf = N + 1; // cell faces
 
-        T.index.startIndex = 0;
+        T.index.startIndex = startIndex;
         T.index.endIndex = T.index.startIndex + Nc - 1;
 
         P.index.startIndex = T.index.endIndex + 1;
@@ -62,22 +64,17 @@ struct SystemOfEquation
     }
 };
 
-struct MySystem
+struct ISystemBlock
 {
-    int_type        Nvar = 3;       // Number of variables to solve for. E.g. temp. and conc.   
-    int_type        N = 40;         // Number of cells
-    double          L = 1.0;        // Length of domain [m]
-    double          dx = 1.0;       // Cell width [m]
-    double          K = 1.0e-9;     // Permeability [m2/s]
-    double          vis = 1.0e-5;   // Viscosity [Pa-s]
+    SystemOfEquation    eq;
+    double              L = 1.0;        // Length of domain [m]
+    double              dx = 1.0;       // Cell width [m]
+    int_type            N = 40;         // Number of cells
 
-    SystemOfEquation eq;
-
-    void initialise()
+    void initialise(int_type startIndex)
     {
         dx = L / N;
-
-        eq.initialise(N);
+        eq.initialise(N, startIndex);
     }
 
     void cleanUp()
@@ -85,7 +82,35 @@ struct MySystem
         eq.cleanUp();
     }
 
-    void updateT(state_type& f, const state_type& x) const
+    void setInitialConditions(int startIndex, state_vector& x) const
+    {
+        for (int i = eq.T.index.startIndex; i <= eq.T.index.endIndex; ++i)
+        {
+            x[i] = eq.T.t0;
+        }
+
+        for (int i = eq.P.index.startIndex; i <= eq.P.index.endIndex; ++i)
+        {
+            x[i] = eq.P.t0;
+        }
+
+        for (int i = eq.U.index.startIndex; i <= eq.U.index.endIndex; ++i)
+        {
+            x[i] = eq.U.t0;
+        }
+    }
+
+    virtual void updateT(state_type& f, const state_type& x) const = 0;
+    virtual void updateP(state_type& f, const state_type& x) const = 0;
+    virtual void updateU(state_type& f, const state_type& x) const = 0;
+};
+
+struct PorousMedia : ISystemBlock
+{
+    double              K = 1.0e-9;     // Permeability [m2/s]
+    double              vis = 1.0e-5;   // Viscosity [Pa-s]
+    
+    void updateT(state_type& f, const state_type& x) const override
     {
         int startIndex = eq.T.index.startIndex;
         int endIndex = eq.T.index.endIndex;
@@ -100,7 +125,7 @@ struct MySystem
         f(endIndex) = autodiff::real(273) - x(endIndex);
     }
 
-    void updateP(state_type& f, const state_type& x) const
+    void updateP(state_type& f, const state_type& x) const override
     {
         int startIndex = eq.P.index.startIndex;
         int endIndex = eq.P.index.endIndex;
@@ -126,7 +151,7 @@ struct MySystem
         f(endIndex) = autodiff::real(101325) - x(endIndex);
     }
 
-    void updateU(state_type& f, const state_type& x) const
+    void updateU(state_type& f, const state_type& x) const override
     {
         autodiff::real  _dx = 1 / dx;
         autodiff::real  _vis = 1 / vis;
@@ -144,26 +169,89 @@ struct MySystem
             u++;
             p++;
         }
+    }   
+};
+
+
+struct MySystem
+{
+    std::vector<ISystemBlock>               m_sys;
+    std::unordered_map<std::string, int>    m_map;
+
+    void addBlock(const std::string& name, ISystemBlock& block)
+    {
+        m_sys.push_back(block);
+        m_map[name] = m_sys.size() - 1;
+    }
+
+    ISystemBlock& getBlock(const std::string& name)
+    {
+        return m_sys[m_map[name]];
+    }
+
+    void removeBlock(const std::string& name)
+    {
+        m_sys.erase(m_sys.begin() + m_map[name]);
+        m_map.erase(name);
+    }
+
+    void initialise()
+    {
+        int startIndex = 0;
+        int endIndex = 0;
+
+        for (auto& block : m_sys)
+        {
+            endIndex = startIndex + block.N - 1;
+            block.initialise(startIndex);
+            startIndex = endIndex + 1;
+        }
+    }
+
+    void cleanUp()
+    {
+        for (auto& block : m_sys)
+        {
+            block.cleanUp();
+        }
+    }
+
+    void updateT(state_type& f, const state_type& x) const
+    {
+        for (auto& block : m_sys)
+        {
+            block.updateT(f, x);
+        }
+    }
+
+    void updateP(state_type& f, const state_type& x) const
+    {
+        for (auto& block : m_sys)
+        {
+            block.updateP(f, x);
+        }
+    }
+
+    void updateU(state_type& f, const state_type& x) const
+    {
+        for (auto& block : m_sys)
+        {
+            block.updateU(f, x);
+        }
     }
 
     state_vector getInitialConditions() const
     {
-        int Ntot = eq.U.index.endIndex + 1;
-        state_vector x(Ntot);
+        state_vector x;
+        x.reserve(100);
+        int startIndex = 0;
 
-        for (int i = eq.T.index.startIndex; i <= eq.T.index.endIndex; ++i)
+        for (auto& block : m_sys)
         {
-            x[i] = eq.T.t0;
-        }
-
-        for (int i = eq.P.index.startIndex; i <= eq.P.index.endIndex; ++i)
-        {
-            x[i] = eq.P.t0;
-        }
-
-        for (int i = eq.U.index.startIndex; i <= eq.U.index.endIndex; ++i)
-        {
-            x[i] = eq.U.t0;
+            size_t x_new_size = x.size() + block.eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            x.resize(x_new_size);
+            block.setInitialConditions(startIndex, x);
+            startIndex = x_new_size - 1;
         }
 
         return x;
@@ -171,15 +259,24 @@ struct MySystem
 
     void setMassMatrix(sparse_matrix& M) const
     {
-        int Ntot = eq.U.index.endIndex + 1;
-        M.reserve(Ntot);
+        int startIndex = 0;
+        int sysSize = 0;
+        M.reserve(100);
+        
+        for (auto& block : m_sys)
+        {
+            size_t sysSize = block.eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            block.setMassMatrix(startIndex, M);
+            startIndex += sysSize
+        }
 
-        for (int i = eq.T.index.startIndex; i <= eq.T.index.endIndex; ++i)
+
+        for (int i = m_sys.eq.T.index.startIndex; i <= m_sys.eq.T.index.endIndex; ++i)
         {
             M(i, i, 1.0);
         }
 
-        for (int i = eq.P.index.startIndex; i <= eq.P.index.endIndex; ++i)
+        for (int i = m_sys.eq.P.index.startIndex; i <= m_sys.eq.P.index.endIndex; ++i)
         {
             M(i, i, 1.0);
         }
@@ -249,29 +346,6 @@ state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
     return var;
 }
 
-/*
-struct VariableFiles
-{
-    VariableFiles()
-    {
-        m_fileT.open("T.csv");
-        m_fileP.open("P.csv");
-        m_fileU.open("U.csv");
-    }
-    ~VariableFiles()
-    {
-
-        m_fileT.close();
-        m_fileP.close();
-        m_fileU.close();
-    }
-
-    std::ofstream m_fileT{};
-    std::ofstream m_fileP{};
-    std::ofstream m_fileU{};
-};
-*/
-
 class MySolutionManager
 {
     SystemOfEquation& m_eq;
@@ -316,7 +390,7 @@ void RunStudy(Study& study)
         MyRHS(study.m_system), 
         x0, 
         study.m_time, 
-        MySolutionManager(study.m_system.eq), 
+        MySolutionManager(study.m_system.m_sys.eq), 
         study.m_solverOptions
     );
 
@@ -328,10 +402,11 @@ void RunStudy(Study& study)
 int main()
 {
     Study study;
-    study.m_system.N = 10;
-    study.m_system.eq.T.t0 = 293.0;
-    study.m_system.eq.P.t0 = 101325.0;
-    study.m_system.eq.U.t0 = 0.0;
+    SystemBlock& sys = study.m_system.m_sys;
+    sys.N = 10;
+    sys.eq.T.t0 = 293.0;
+    sys.eq.P.t0 = 101325.0;
+    sys.eq.U.t0 = 0.0;
 
     study.m_time = 100.0;
 
