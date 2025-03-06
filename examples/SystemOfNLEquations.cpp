@@ -111,12 +111,18 @@ struct ISystemBlock
 
     void setMassMatrix(int startIndex, sparse_matrix& M) const
     {
-        for (int i = startIndex + eq.T.index.startIndex; i <= m_sys.eq.T.index.endIndex; ++i)
+        int T_start = startIndex + eq.T.index.startIndex;
+        int T_end = startIndex + eq.T.index.endIndex;
+
+        int P_start = startIndex + eq.P.index.startIndex;
+        int P_end = startIndex + eq.P.index.endIndex;
+
+        for (int i = T_start; i <= T_end; ++i)
         {
             M(i, i, 1.0);
         }
 
-        for (int i = m_sys.eq.P.index.startIndex; i <= m_sys.eq.P.index.endIndex; ++i)
+        for (int i = P_start; i <= P_end; ++i)
         {
             M(i, i, 1.0);
         }
