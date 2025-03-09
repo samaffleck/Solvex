@@ -278,11 +278,9 @@ struct MySystem
 
     state_vector getInitialConditions() const
     {
-<<<<<<< HEAD
         state_vector x;
         x.reserve(100);
         size_t startIndex = 0;
-=======
         size_t x_size = 0;
         for (auto& block : m_sys)
         {
@@ -293,7 +291,6 @@ struct MySystem
         std::cout << "Initialising state vector of size " << x_size << "\n";
         state_vector x(x_size);
         int startIndex = 0;
->>>>>>> c6efb2b127c89f814e17fc369079050f066ce41a
 
         for (auto& block : m_sys)
         {
@@ -425,11 +422,7 @@ static void RunStudy(Study& study)
     // Generate the initial condition vector
     state_vector x0 = study.m_system.getInitialConditions();
     printVector(x0);
-<<<<<<< HEAD
-    
-=======
 
->>>>>>> c6efb2b127c89f814e17fc369079050f066ce41a
     // Solve the system of ODEs
     solve(
         MyMassMatrix(study.m_system), 
@@ -454,13 +447,6 @@ int main()
     porousMedia1.eq.P.t0 = 101325.0;
     porousMedia1.eq.U.t0 = 0.0;
     study.m_system.addBlock("PorousMedia1", std::make_unique<PorousMedia>(porousMedia1));
-
-    PorousMedia porousMedia2(study.m_system.eq);
-    porousMedia2.N = 8;
-    porousMedia2.eq.T.t0 = 293.0;
-    porousMedia2.eq.P.t0 = 101325.0;
-    porousMedia2.eq.U.t0 = 0.0;
-    study.m_system.addBlock("PorousMedia2", std::make_unique<PorousMedia>(porousMedia2));
 
     PorousMedia porousMedia2(study.m_system.eq);
     porousMedia2.N = 5;
