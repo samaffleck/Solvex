@@ -86,7 +86,22 @@ struct ISystemBlock
         eq.cleanUp();
     }
 
-    void setInitialConditions(int startIndex, state_vector& x) const
+    virtual void setInitialConditions(int startIndex, state_vector& x) const = 0;
+    virtual void setMassMatrix(int startIndex, sparse_matrix& M) const = 0;
+    virtual void updateT(state_type& f, const state_type& x) const = 0;
+    virtual void updateP(state_type& f, const state_type& x) const = 0;
+    virtual void updateU(state_type& f, const state_type& x) const = 0;
+};
+
+struct PorousMedia : ISystemBlock
+{
+    double              K = 1.0e-9;     // Permeability [m2/s]
+    double              vis = 1.0e-5;   // Viscosity [Pa-s]
+
+    explicit PorousMedia(SystemOfEquation& eq) : ISystemBlock(eq) {}
+    ~PorousMedia() final = default;
+
+    void setInitialConditions(int startIndex, state_vector& x) const override
     {
         int T_start = startIndex + eq.T.index.startIndex;
         int T_end = startIndex + eq.T.index.endIndex;
@@ -112,21 +127,7 @@ struct ISystemBlock
             x[i] = eq.U.t0;
         }
     }
-
-    virtual void setMassMatrix(int startIndex, sparse_matrix& M) const = 0;
-    virtual void updateT(state_type& f, const state_type& x) const = 0;
-    virtual void updateP(state_type& f, const state_type& x) const = 0;
-    virtual void updateU(state_type& f, const state_type& x) const = 0;
-};
-
-struct PorousMedia : ISystemBlock
-{
-    double              K = 1.0e-9;     // Permeability [m2/s]
-    double              vis = 1.0e-5;   // Viscosity [Pa-s]
-
-    PorousMedia(SystemOfEquation& eq) : ISystemBlock(eq) {}
-    ~PorousMedia() = default;
-
+    
     void setMassMatrix(int startIndex, sparse_matrix& M) const override
     {
         int T_start = startIndex + eq.T.index.startIndex;
@@ -190,7 +191,6 @@ struct PorousMedia : ISystemBlock
     void updateU(state_type& f, const state_type& x) const override
     {
         autodiff::real  _dx = 1 / dx;
-        autodiff::real  _vis = 1 / vis;
         autodiff::real  K1 = K / vis;
         int     p = eq.P.index.startIndex;
         int     u = eq.U.index.startIndex;
@@ -232,12 +232,12 @@ struct MySystem
         m_map.erase(name);
     }
 
-    void initialise()
+    void initialise() const
     {
         int startIndex = 0;
         int endIndex = 0;
 
-        for (auto& block : m_sys)
+        for (const auto& block : m_sys)
         {
             endIndex = startIndex + block->N - 1;
             block->initialise(startIndex);
@@ -245,9 +245,9 @@ struct MySystem
         }
     }
 
-    void cleanUp()
+    void cleanUp() const
     {
-        for (auto& block : m_sys)
+        for (const auto& block : m_sys)
         {
             block->cleanUp();
         }
@@ -281,7 +281,7 @@ struct MySystem
     {
         state_vector x;
         x.reserve(100);
-        int startIndex = 0;
+        size_t startIndex = 0;
 
         for (auto& block : m_sys)
         {
@@ -328,7 +328,7 @@ class MyRHS
 public:
     explicit MyRHS(MySystem& system) : m_system(system) {}
 
-    void operator()(state_type& f, const state_type& x, const double t) const
+    void operator()(state_type& f, const state_type& x, const double) const
     {
         m_system.updateT(f, x);
         m_system.updateP(f, x);
@@ -336,7 +336,7 @@ public:
     }
 };
 
-void printVector(const state_vector& x)
+static void printVector(const state_vector& x)
 {
     std::cout << "x:\n";
     for (size_t i = 0; i < x.size(); ++i)
@@ -346,7 +346,7 @@ void printVector(const state_vector& x)
     std::cout << "\n";
 }
 
-state_vector getCellCenterVariable(const state_vector& x, SegmentIndex index)
+static state_vector getCellCenterVariable(const state_vector& x, SegmentIndex index)
 {
     int N = index.endIndex - index.startIndex;
     if (N <= 1) return state_vector();
@@ -359,7 +359,7 @@ state_vector getCellCenterVariable(const state_vector& x, SegmentIndex index)
     return var;
 }
 
-state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
+static state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
 {
     int N = index.endIndex - index.startIndex + 1;
 
@@ -401,13 +401,14 @@ struct Study
 };
 
 
-void RunStudy(Study& study)
+static void RunStudy(Study& study)
 {
     // Initialise
     study.m_system.initialise();
     
     // Generate the initial condition vector
     state_vector x0 = study.m_system.getInitialConditions();
+    printVector(x0);
     
     // Solve the system of ODEs
     solve(
@@ -433,6 +434,13 @@ int main()
     porousMedia.eq.P.t0 = 101325.0;
     porousMedia.eq.U.t0 = 0.0;
     study.m_system.addBlock("PorousMedia", std::make_unique<PorousMedia>(porousMedia));
+
+    PorousMedia porousMedia2(study.m_system.eq);
+    porousMedia2.N = 5;
+    porousMedia2.eq.T.t0 = 298.0;
+    porousMedia2.eq.P.t0 = 111325.0;
+    porousMedia2.eq.U.t0 = 0.4;
+    study.m_system.addBlock("PorousMedia2", std::make_unique<PorousMedia>(porousMedia2));
 
     study.m_time = 100.0;
 
