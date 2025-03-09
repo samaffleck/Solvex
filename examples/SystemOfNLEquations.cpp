@@ -235,13 +235,12 @@ struct MySystem
     void initialise()
     {
         int startIndex = 0;
-        int endIndex = 0;
 
         for (auto& block : m_sys)
         {
-            endIndex = startIndex + block->N - 1;
+            std::cout << "Initialising block with start index " << startIndex << "\n";
             block->initialise(startIndex);
-            startIndex = endIndex + 1;
+            startIndex = block->eq.U.index.endIndex + 1;
         }
     }
 
@@ -279,16 +278,22 @@ struct MySystem
 
     state_vector getInitialConditions() const
     {
-        state_vector x;
-        x.reserve(100);
+        size_t x_size = 0;
+        for (auto& block : m_sys)
+        {
+            std::cout << "Getting initial conditions for block with start index " << x_size << "\n";
+            x_size += block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+        }
+
+        std::cout << "Initialising state vector of size " << x_size << "\n";
+        state_vector x(x_size);
         int startIndex = 0;
 
         for (auto& block : m_sys)
         {
-            size_t x_new_size = x.size() + block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
-            x.resize(x_new_size);
+            std::cout << "Setting initial conditions for block with start index " << startIndex << "\n";
             block->setInitialConditions(startIndex, x);
-            startIndex = x_new_size - 1;
+            startIndex = block->eq.U.index.endIndex + 1;
         }
 
         return x;
@@ -296,14 +301,19 @@ struct MySystem
 
     void setMassMatrix(sparse_matrix& M) const
     {
-        int startIndex = 0;
-        M.reserve(100);
-        
+        size_t x_size = 0;
         for (auto& block : m_sys)
         {
-            size_t sysSize = block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            x_size += block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+        }
+    
+        M.reserve(x_size);
+        
+        int startIndex = 0;
+        for (auto& block : m_sys)
+        {
             block->setMassMatrix(startIndex, M);
-            startIndex += sysSize;
+            startIndex += block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block 
         }
     }
 };
@@ -408,7 +418,8 @@ void RunStudy(Study& study)
     
     // Generate the initial condition vector
     state_vector x0 = study.m_system.getInitialConditions();
-    
+    printVector(x0);
+
     // Solve the system of ODEs
     solve(
         MyMassMatrix(study.m_system), 
@@ -427,12 +438,19 @@ void RunStudy(Study& study)
 int main()
 {
     Study study;
-    PorousMedia porousMedia(study.m_system.eq);
-    porousMedia.N = 10;
-    porousMedia.eq.T.t0 = 293.0;
-    porousMedia.eq.P.t0 = 101325.0;
-    porousMedia.eq.U.t0 = 0.0;
-    study.m_system.addBlock("PorousMedia", std::make_unique<PorousMedia>(porousMedia));
+    PorousMedia porousMedia1(study.m_system.eq);
+    porousMedia1.N = 4;
+    porousMedia1.eq.T.t0 = 293.0;
+    porousMedia1.eq.P.t0 = 101325.0;
+    porousMedia1.eq.U.t0 = 0.0;
+    study.m_system.addBlock("PorousMedia1", std::make_unique<PorousMedia>(porousMedia1));
+
+    PorousMedia porousMedia2(study.m_system.eq);
+    porousMedia2.N = 8;
+    porousMedia2.eq.T.t0 = 293.0;
+    porousMedia2.eq.P.t0 = 101325.0;
+    porousMedia2.eq.U.t0 = 0.0;
+    study.m_system.addBlock("PorousMedia2", std::make_unique<PorousMedia>(porousMedia2));
 
     study.m_time = 100.0;
 
