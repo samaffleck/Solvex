@@ -29,29 +29,47 @@ struct Equation
             file << "," << x[i];
         file << "\n";
     }
+
+    size_t getSize() const
+    {
+        return (index.endIndex - index.startIndex + 1);
+    }
+
+    void setInitialCondition(state_vector& x) const
+    {
+        for (int i = index.startIndex; i <= index.endIndex; ++i)
+        {
+            x[i] = t0;
+        }
+    }
+
+    void setMassMatrix(sparse_matrix& M) const
+    {
+        for (int i = index.startIndex; i <= index.endIndex; ++i)
+        {
+            M(i, i, 1.0);
+        }
+    }
 };
 
 struct SystemOfEquation
 {
     Equation        T{};            // Temperature
     Equation        P{};            // Pressure
-    Equation        U{};            // Velocity
-    int_type        Nvar = 3;       // Number of variables to solve for. E.g. temp. and conc.   
+    Equation        U{};           // Velocity
+    int_type        Nvar = 3;           // Number of variables to solve for. E.g. temp. and conc.   
 
-    void initialise(int_type N, int_type startIndex)
+    size_t getSize() const
     {
-        int Nc = N + 2; // add two ghost cells 
-        int Nf = N + 1; // cell faces
+        size_t size = 0;
+        size += T.getSize();
+        size += P.getSize();
+        size += U.getSize();
+        return size;
+    }
 
-        T.index.startIndex = startIndex;
-        T.index.endIndex = T.index.startIndex + Nc - 1;
-
-        P.index.startIndex = T.index.endIndex + 1;
-        P.index.endIndex = P.index.startIndex + Nc - 1;
-
-        U.index.startIndex = P.index.endIndex + 1;
-        U.index.endIndex = U.index.startIndex + Nf - 1;
-
+    void initialise()
+    {
         T.file.open("T.csv");
         P.file.open("P.csv");
         U.file.open("U.csv");
@@ -67,27 +85,23 @@ struct SystemOfEquation
 
 struct ISystemBlock
 {
-    SystemOfEquation&   eq;
+    SystemOfEquation    eq;
     double              L = 1.0;        // Length of domain [m]
     double              dx = 1.0;       // Cell width [m]
     int_type            N = 40;         // Number of cells
 
-    ISystemBlock(SystemOfEquation& eq) : eq(eq) {}
+    ISystemBlock() = default;
     virtual ~ISystemBlock() = default;
 
-    void initialise(int_type startIndex)
+    size_t getSize() const
     {
-        dx = L / N;
-        eq.initialise(N, startIndex);
+        return eq.getSize();
     }
 
-    void cleanUp()
-    {
-        eq.cleanUp();
-    }
-
-    virtual void setInitialConditions(int startIndex, state_vector& x) const = 0;
-    virtual void setMassMatrix(int startIndex, sparse_matrix& M) const = 0;
+    virtual void initialise() = 0;
+    virtual void cleanUp() = 0;
+    virtual void setInitialConditions(state_vector& x) const = 0;
+    virtual void setMassMatrix(sparse_matrix& M) const = 0;
     virtual void updateT(state_type& f, const state_type& x) const = 0;
     virtual void updateP(state_type& f, const state_type& x) const = 0;
     virtual void updateU(state_type& f, const state_type& x) const = 0;
@@ -98,53 +112,31 @@ struct PorousMedia : ISystemBlock
     double              K = 1.0e-9;     // Permeability [m2/s]
     double              vis = 1.0e-5;   // Viscosity [Pa-s]
 
-    explicit PorousMedia(SystemOfEquation& eq) : ISystemBlock(eq) {}
+    PorousMedia() = default;
     ~PorousMedia() final = default;
 
-    void setInitialConditions(int startIndex, state_vector& x) const override
+    void initialise() override
     {
-        int T_start = startIndex + eq.T.index.startIndex;
-        int T_end = startIndex + eq.T.index.endIndex;
+        dx = L / N;
+        eq.initialise();
+    }
 
-        int P_start = startIndex + eq.P.index.startIndex;
-        int P_end = startIndex + eq.P.index.endIndex;
+    void cleanUp() override
+    {
+        eq.cleanUp();
+    }
 
-        int U_start = startIndex + eq.U.index.startIndex;
-        int U_end = startIndex + eq.U.index.endIndex;
-
-        for (int i = T_start; i <= T_end; ++i)
-        {
-            x[i] = eq.T.t0;
-        }
-
-        for (int i = P_start; i <= P_end; ++i)
-        {
-            x[i] = eq.P.t0;
-        }
-
-        for (int i = U_start; i <= U_end; ++i)
-        {
-            x[i] = eq.U.t0;
-        }
+    void setInitialConditions(state_vector& x) const override
+    {
+        eq.T.setInitialCondition(x);
+        eq.P.setInitialCondition(x);
+        eq.U.setInitialCondition(x);
     }
     
-    void setMassMatrix(int startIndex, sparse_matrix& M) const override
+    void setMassMatrix(sparse_matrix& M) const override
     {
-        int T_start = startIndex + eq.T.index.startIndex;
-        int T_end = startIndex + eq.T.index.endIndex;
-
-        int P_start = startIndex + eq.P.index.startIndex;
-        int P_end = startIndex + eq.P.index.endIndex;
-
-        for (int i = T_start; i <= T_end; ++i)
-        {
-            M(i, i, 1.0);
-        }
-
-        for (int i = P_start; i <= P_end; ++i)
-        {
-            M(i, i, 1.0);
-        }
+        eq.T.setMassMatrix(M);
+        eq.P.setMassMatrix(M);
     }
 
     void updateT(state_type& f, const state_type& x) const override
@@ -213,7 +205,6 @@ struct MySystem
 {
     std::vector<std::unique_ptr<ISystemBlock>>  m_sys;
     std::unordered_map<std::string, int>        m_map;
-    SystemOfEquation                            eq;
 
     void addBlock(const std::string& name, std::unique_ptr<ISystemBlock> block)
     {
@@ -234,13 +225,32 @@ struct MySystem
 
     void initialise() const
     {
-        int startIndex = 0;
+        int start_index = 0;
 
         for (const auto& block : m_sys)
         {
-            std::cout << "Initialising block with start index " << startIndex << "\n";
-            block->initialise(startIndex);
-            startIndex = block->eq.U.index.endIndex + 1;
+            block->eq.T.index.startIndex = start_index;
+            block->eq.T.index.endIndex = start_index + block->N + 1;
+            start_index = block->eq.T.index.endIndex + 1;
+        }
+        
+        for (const auto& block : m_sys)
+        {
+            block->eq.P.index.startIndex = start_index;
+            block->eq.P.index.endIndex = start_index + block->N + 1;
+            start_index = block->eq.P.index.endIndex + 1;
+        }
+
+        for (const auto& block : m_sys)
+        {
+            block->eq.U.index.startIndex = start_index;
+            block->eq.U.index.endIndex = start_index + block->N;
+            start_index = block->eq.U.index.endIndex + 1;
+        }
+
+        for (const auto& block : m_sys)
+        {
+            block->initialise();
         }
     }
 
@@ -278,25 +288,18 @@ struct MySystem
 
     state_vector getInitialConditions() const
     {
-        state_vector x;
-        x.reserve(100);
-        size_t startIndex = 0;
         size_t x_size = 0;
+        
         for (auto& block : m_sys)
         {
-            std::cout << "Getting initial conditions for block with start index " << x_size << "\n";
-            x_size += block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            x_size += block->getSize(); 
         }
 
-        std::cout << "Initialising state vector of size " << x_size << "\n";
         state_vector x(x_size);
-        int startIndex = 0;
-
+        
         for (auto& block : m_sys)
         {
-            std::cout << "Setting initial conditions for block with start index " << startIndex << "\n";
-            block->setInitialConditions(startIndex, x);
-            startIndex = block->eq.U.index.endIndex + 1;
+            block->setInitialConditions(x);
         }
 
         return x;
@@ -305,18 +308,17 @@ struct MySystem
     void setMassMatrix(sparse_matrix& M) const
     {
         size_t x_size = 0;
+
         for (auto& block : m_sys)
         {
-            x_size += block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block
+            x_size += block->getSize();
         }
     
         M.reserve(x_size);
         
-        int startIndex = 0;
         for (auto& block : m_sys)
         {
-            block->setMassMatrix(startIndex, M);
-            startIndex += block->eq.U.index.endIndex + 1; // todo: create a function to get the end index from the system block 
+            block->setMassMatrix(M);
         }
     }
 };
@@ -386,21 +388,24 @@ static state_vector getCellFaceVariable(const state_vector& x, SegmentIndex inde
 
 class MySolutionManager
 {
-    SystemOfEquation& m_eq;
+    MySystem& m_sys;
 
 public:
-    explicit MySolutionManager(SystemOfEquation& eq) : m_eq(eq) {}
+    explicit MySolutionManager(MySystem& sys) : m_sys(sys) {}
     
     int operator()(const state_vector& x, const double t)
     {
-        auto Tvals = getCellCenterVariable(x, m_eq.T.index);
-        auto Pvals = getCellCenterVariable(x, m_eq.P.index);
-        auto Uvals = getCellFaceVariable(x, m_eq.U.index);
+        for (const auto& block : m_sys.m_sys)
+        {
+            auto Tvals = getCellCenterVariable(x, block->eq.T.index);
+            auto Pvals = getCellCenterVariable(x, block->eq.P.index);
+            auto Uvals = getCellFaceVariable(x, block->eq.U.index);
 
-        m_eq.T.log(Tvals, t);
-        m_eq.P.log(Pvals, t);
-        m_eq.U.log(Uvals, t);
-
+            block->eq.T.log(Tvals, t);
+            block->eq.P.log(Pvals, t);
+            block->eq.U.log(Uvals, t);
+        }
+        
         return 0;
     }
 };
@@ -410,7 +415,7 @@ struct Study
 {
     MySystem        m_system;
     SolverOptions   m_solverOptions;
-    double          m_time;
+    double          m_time = 100;
 };
 
 
@@ -429,7 +434,7 @@ static void RunStudy(Study& study)
         MyRHS(study.m_system), 
         x0, 
         study.m_time, 
-        MySolutionManager(study.m_system.eq), 
+        MySolutionManager(study.m_system), 
         study.m_solverOptions
     );
 
@@ -441,25 +446,25 @@ static void RunStudy(Study& study)
 int main()
 {
     Study study;
-    PorousMedia porousMedia1(study.m_system.eq);
-    porousMedia1.N = 4;
-    porousMedia1.eq.T.t0 = 293.0;
-    porousMedia1.eq.P.t0 = 101325.0;
-    porousMedia1.eq.U.t0 = 0.0;
-    study.m_system.addBlock("PorousMedia1", std::make_unique<PorousMedia>(porousMedia1));
+    auto pm1 = std::make_unique<PorousMedia>();
+    pm1->N = 40;
+    pm1->eq.T.t0 = 293.0;
+    pm1->eq.P.t0 = 101325.0;
+    pm1->eq.U.t0 = 0.0;
+    study.m_system.addBlock("PorousMedia1", std::move(pm1));
 
-    PorousMedia porousMedia2(study.m_system.eq);
-    porousMedia2.N = 5;
-    porousMedia2.eq.T.t0 = 298.0;
-    porousMedia2.eq.P.t0 = 111325.0;
-    porousMedia2.eq.U.t0 = 0.4;
-    study.m_system.addBlock("PorousMedia2", std::make_unique<PorousMedia>(porousMedia2));
+    auto pm2 = std::make_unique<PorousMedia>();
+    pm2->N = 20;
+    pm2->eq.T.t0 = 298.0;
+    pm2->eq.P.t0 = 111325.0;
+    pm2->eq.U.t0 = 0.4;
+    study.m_system.addBlock("PorousMedia2", std::move(pm2));
 
     study.m_time = 100.0;
 
     study.m_solverOptions.verbosity = verbosity::normal;        
     study.m_solverOptions.solution_variability_control = false; 
-    study.m_solverOptions.BDF_order = 4;
+    study.m_solverOptions.BDF_order = 1;
     study.m_solverOptions.atol = 1e-10;
     study.m_solverOptions.rtol = 1e-10;
 
