@@ -16,11 +16,79 @@ struct SegmentIndex
     int             endIndex{};
 };
 
+enum class BoundaryType 
+{
+    Dirichlet,  // Fixed value
+    Neumann,    // Fixed gradient
+    Robin,      // Mixed (convective)
+    Periodic    // Periodic boundaries
+};
+
+enum class Location
+{
+    Top,
+    Bottom
+};
+
+struct BoundaryCondition 
+{
+    BoundaryType    type;
+    Location        loc;
+    virtual void apply(state_type& f, const state_type& x, int index, double dx) const = 0;
+};
+
+
+struct DirichletBC : BoundaryCondition 
+{
+    autodiff::real value;
+
+    DirichletBC(autodiff::real fixedValue, Location location) 
+    {
+        type = BoundaryType::Dirichlet;
+        value = fixedValue;
+        loc = location;
+    }
+
+    void apply(state_type& f, const state_type& x, int index, double dx) const override
+    {
+        f(index) = value - x(index);
+    }
+};
+
+struct NeumannBC : BoundaryCondition 
+{
+    autodiff::real gradient;
+
+    NeumannBC(autodiff::real fixedGradient, Location location)
+    {
+        type = BoundaryType::Neumann;
+        gradient = fixedGradient;
+        loc = location;
+        if (loc == Location::Top)
+        {
+            dir = 1;
+        }
+    }
+
+    void apply(state_type& f, const state_type& x, int index, double dx) const override
+    {
+        // Forward difference for upper boundary
+        f(index) = gradient - dir * (x(index) - x(index - dir)) / dx;
+    }
+
+private:
+    int dir = -1;
+
+};
+
+
 struct Equation
 {
-    std::ofstream   file{};         // csv file for log data
-    double          t0{};           // Initial condition
-    SegmentIndex    index{};        // Start and end index
+    std::ofstream                       file{};         // csv file for log data
+    std::unique_ptr<BoundaryCondition>  top_bc{};       // Top boundary condition
+    std::unique_ptr<BoundaryCondition>  bot_bc{};       // Bottom boundary condition
+    double                              t0{};           // Initial condition
+    SegmentIndex                        index{};        // Start and end index
 
     void log(const state_vector& x, const double t)
     {
@@ -68,11 +136,11 @@ struct SystemOfEquation
         return size;
     }
 
-    void initialise()
+    void initialise(const std::string& name_id)
     {
-        T.file.open("T.csv");
-        P.file.open("P.csv");
-        U.file.open("U.csv");
+        T.file.open(name_id + "_T.csv");
+        P.file.open(name_id + "_P.csv");
+        U.file.open(name_id + "_U.csv");
     }
 
     void cleanUp()
@@ -86,11 +154,12 @@ struct SystemOfEquation
 struct ISystemBlock
 {
     SystemOfEquation    eq;
+    std::string         m_name{};
     double              L = 1.0;        // Length of domain [m]
     double              dx = 1.0;       // Cell width [m]
     int_type            N = 40;         // Number of cells
 
-    ISystemBlock() = default;
+    explicit ISystemBlock(const std::string& name) : m_name(name) {}
     virtual ~ISystemBlock() = default;
 
     size_t getSize() const
@@ -112,13 +181,13 @@ struct PorousMedia : ISystemBlock
     double              K = 1.0e-9;     // Permeability [m2/s]
     double              vis = 1.0e-5;   // Viscosity [Pa-s]
 
-    PorousMedia() = default;
+    explicit PorousMedia(const std::string& name) : ISystemBlock(name) {}
     ~PorousMedia() final = default;
 
     void initialise() override
     {
         dx = L / N;
-        eq.initialise();
+        eq.initialise(m_name);
     }
 
     void cleanUp() override
@@ -144,14 +213,14 @@ struct PorousMedia : ISystemBlock
         int startIndex = eq.T.index.startIndex;
         int endIndex = eq.T.index.endIndex;
 
-        f(startIndex) = autodiff::real(298) - x(startIndex);
+        eq.T.bot_bc->apply(f, x, startIndex, dx);
 
         for (int i = startIndex + 1; i < endIndex; ++i)
         {
             f(i) = x(i + 1) - autodiff::real(2) * x(i) + x(i - 1);
         }
 
-        f(endIndex) = autodiff::real(273) - x(endIndex);
+        eq.T.top_bc->apply(f, x, endIndex, dx);
     }
 
     void updateP(state_type& f, const state_type& x) const override
@@ -206,10 +275,10 @@ struct MySystem
     std::vector<std::unique_ptr<ISystemBlock>>  m_sys;
     std::unordered_map<std::string, int>        m_map;
 
-    void addBlock(const std::string& name, std::unique_ptr<ISystemBlock> block)
+    void addBlock(std::unique_ptr<ISystemBlock> block)
     {
+        m_map[block->m_name] = m_sys.size() - 1;
         m_sys.emplace_back(std::move(block));
-        m_map[name] = m_sys.size() - 1;
     }
 
     ISystemBlock& getBlock(const std::string& name)
@@ -286,16 +355,21 @@ struct MySystem
         }
     }
 
-    state_vector getInitialConditions() const
+    size_t getSystemSize() const
     {
         size_t x_size = 0;
-        
+
         for (auto& block : m_sys)
         {
-            x_size += block->getSize(); 
+            x_size += block->getSize();
         }
 
-        state_vector x(x_size);
+        return x_size;
+    }
+
+    state_vector getInitialConditions() const
+    {
+        state_vector x(getSystemSize());
         
         for (auto& block : m_sys)
         {
@@ -307,14 +381,7 @@ struct MySystem
 
     void setMassMatrix(sparse_matrix& M) const
     {
-        size_t x_size = 0;
-
-        for (auto& block : m_sys)
-        {
-            x_size += block->getSize();
-        }
-    
-        M.reserve(x_size);
+        M.reserve(getSystemSize());
         
         for (auto& block : m_sys)
         {
@@ -446,19 +513,31 @@ static void RunStudy(Study& study)
 int main()
 {
     Study study;
-    auto pm1 = std::make_unique<PorousMedia>();
+
+    auto pm1 = std::make_unique<PorousMedia>("PorousMedia1");
     pm1->N = 40;
+
+    // BOUNDARY CONDITIONS
+    pm1->eq.T.bot_bc = std::make_unique<DirichletBC>(298, Location::Bottom);
+    pm1->eq.T.top_bc = std::make_unique<DirichletBC>(273, Location::Top);
+
+    // INITIAL CONDITIONS
     pm1->eq.T.t0 = 293.0;
     pm1->eq.P.t0 = 101325.0;
     pm1->eq.U.t0 = 0.0;
-    study.m_system.addBlock("PorousMedia1", std::move(pm1));
+    study.m_system.addBlock(std::move(pm1));
 
-    auto pm2 = std::make_unique<PorousMedia>();
+    auto pm2 = std::make_unique<PorousMedia>("PorousMedia2");
     pm2->N = 20;
+
+    // BOUNDARY CONDITIONS
+    pm2->eq.T.bot_bc = std::make_unique<DirichletBC>(298, Location::Bottom);
+    pm2->eq.T.top_bc = std::make_unique<DirichletBC>(273, Location::Top);
+
     pm2->eq.T.t0 = 298.0;
     pm2->eq.P.t0 = 111325.0;
     pm2->eq.U.t0 = 0.4;
-    study.m_system.addBlock("PorousMedia2", std::move(pm2));
+    study.m_system.addBlock(std::move(pm2));
 
     study.m_time = 100.0;
 
