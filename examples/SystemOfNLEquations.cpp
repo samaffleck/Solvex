@@ -21,7 +21,8 @@ enum class BoundaryType
     Dirichlet,  // Fixed value
     Neumann,    // Fixed gradient
     Robin,      // Mixed (convective)
-    Periodic    // Periodic boundaries
+    Periodic,    // Periodic boundaries
+    Interface
 };
 
 enum class Location
@@ -73,12 +74,30 @@ struct NeumannBC : BoundaryCondition
     void apply(state_type& f, const state_type& x, int index, double dx) const override
     {
         // Forward difference for upper boundary
-        f(index) = gradient - dir * (x(index) - x(index - dir)) / dx;
+        f(index) = gradient - autodiff::real(dir) * (x(index) - x(index - dir)) / autodiff::real(dx);
     }
 
 private:
     int dir = -1;
 
+};
+
+
+struct InterfaceBoundary : BoundaryCondition 
+{
+    int m_connecting_index;
+
+    InterfaceBoundary(int connecting_index, Location location)
+    {
+        type = BoundaryType::Interface;
+        loc = location;
+        m_connecting_index = connecting_index;
+    }
+
+    void apply(state_type& f, const state_type& x, int index, double dx) const override
+    {
+        f(index) = x(index) - x(m_connecting_index);
+    }
 };
 
 
@@ -510,33 +529,45 @@ static void RunStudy(Study& study)
 }
 
 
+static void connectBoundaryConditions(Equation& top_equation, 
+    Equation& bottom_equation)
+{
+    int top_index = top_equation.index.endIndex - 1;
+    int bottom_index = bottom_equation.index.startIndex + 1;
+
+    top_equation.top_bc = std::make_unique<InterfaceBoundary>(bottom_index, Location::Top);
+    bottom_equation.bot_bc = std::make_unique<InterfaceBoundary>(top_index, Location::Bottom);
+}
+
+
 int main()
 {
     Study study;
 
+    // CREATE LAYERS
     auto pm1 = std::make_unique<PorousMedia>("PorousMedia1");
+    auto pm2 = std::make_unique<PorousMedia>("PorousMedia2");
     pm1->N = 40;
+    pm2->N = 20;
 
     // BOUNDARY CONDITIONS
     pm1->eq.T.bot_bc = std::make_unique<DirichletBC>(298, Location::Bottom);
     pm1->eq.T.top_bc = std::make_unique<DirichletBC>(273, Location::Top);
+    pm2->eq.T.bot_bc = std::make_unique<DirichletBC>(298, Location::Bottom);
+    pm2->eq.T.top_bc = std::make_unique<DirichletBC>(273, Location::Top);
+
+    connectBoundaryConditions(pm1->eq.T, pm2->eq.T);
 
     // INITIAL CONDITIONS
     pm1->eq.T.t0 = 293.0;
     pm1->eq.P.t0 = 101325.0;
     pm1->eq.U.t0 = 0.0;
-    study.m_system.addBlock(std::move(pm1));
-
-    auto pm2 = std::make_unique<PorousMedia>("PorousMedia2");
-    pm2->N = 20;
-
-    // BOUNDARY CONDITIONS
-    pm2->eq.T.bot_bc = std::make_unique<DirichletBC>(298, Location::Bottom);
-    pm2->eq.T.top_bc = std::make_unique<DirichletBC>(273, Location::Top);
-
     pm2->eq.T.t0 = 298.0;
     pm2->eq.P.t0 = 111325.0;
     pm2->eq.U.t0 = 0.4;
+
+    // ADD BLOCKS TO SYSTEM
+    study.m_system.addBlock(std::move(pm1));
     study.m_system.addBlock(std::move(pm2));
 
     study.m_time = 100.0;
