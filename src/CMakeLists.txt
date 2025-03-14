@@ -1,6 +1,7 @@
 add_library(Solvex STATIC
-    Equation.cpp
+    Equations.cpp
     Solvex.cpp
+    BoundaryConditions.cpp
 )
 
 # Include Eigen as an INTERFACE dependency

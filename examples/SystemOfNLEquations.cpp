@@ -1,174 +1,54 @@
 // C++ includes
-#include <iostream>
-#include <fstream>
 #include <unordered_map>
 #include <memory>
 
 // DAE-CPP includes
 #include "dae-cpp/solver.hpp"
 
-// dae-cpp namespace
+// Solvex includes
+#include "Solvex/BoundaryConditions.h"
+#include "Solvex/Equations.h"
+#include "Solvex/Variables.h"
+#include "Solvex/Solvex.h"
+
+// namespace
 using namespace daecpp;
+using namespace Solvex;
 
-struct SegmentIndex
+
+struct DiffusionCoefficient : VariableInTime
 {
-    int             startIndex{};
-    int             endIndex{};
-};
+    SystemOfEquation& m_eq;
 
-enum class BoundaryType 
-{
-    Dirichlet,  // Fixed value
-    Neumann,    // Fixed gradient
-    Robin,      // Mixed (convective)
-    Periodic,    // Periodic boundaries
-    Interface
-};
+    explicit DiffusionCoefficient(SystemOfEquation& equations) : m_eq(equations) {}
+    ~DiffusionCoefficient() final = default;
 
-enum class Location
-{
-    Top,
-    Bottom
-};
-
-struct BoundaryCondition 
-{
-    BoundaryType    type;
-    Location        loc;
-    virtual void apply(state_type& f, const state_type& x, int index, double dx) const = 0;
-};
-
-
-struct DirichletBC : BoundaryCondition 
-{
-    autodiff::real value;
-
-    DirichletBC(autodiff::real fixedValue, Location location) 
+    void update(double t) override
     {
-        type = BoundaryType::Dirichlet;
-        value = fixedValue;
-        loc = location;
-    }
-
-    void apply(state_type& f, const state_type& x, int index, double dx) const override
-    {
-        f(index) = value - x(index);
+        m_var = 10 * (1 / (t + 1));
     }
 };
 
-struct NeumannBC : BoundaryCondition 
+struct DiffusionCoefficient1D : VariableInTime_1D
 {
-    autodiff::real gradient;
+    SystemOfEquation& m_eq;
 
-    NeumannBC(autodiff::real fixedGradient, Location location)
+    explicit DiffusionCoefficient1D(SystemOfEquation& equations) : m_eq(equations) {}
+    ~DiffusionCoefficient1D() final = default;
+
+    void update(const state_vector& x, double t) override
     {
-        type = BoundaryType::Neumann;
-        gradient = fixedGradient;
-        loc = location;
-        if (loc == Location::Top)
+        int T = m_eq.T.index.startIndex;
+        double T_ref = 298;
+
+        for (int i = 0; i < m_var.size(); ++i)
         {
-            dir = 1;
+            m_var[i] = 1e-3 * (x[T + i] / (T_ref));
         }
-    }
-
-    void apply(state_type& f, const state_type& x, int index, double dx) const override
-    {
-        // Forward difference for upper boundary
-        f(index) = gradient - autodiff::real(dir) * (x(index) - x(index - dir)) / autodiff::real(dx);
-    }
-
-private:
-    int dir = -1;
-
-};
-
-
-struct InterfaceBoundary : BoundaryCondition 
-{
-    int m_connecting_index;
-
-    InterfaceBoundary(int connecting_index, Location location)
-    {
-        type = BoundaryType::Interface;
-        loc = location;
-        m_connecting_index = connecting_index;
-    }
-
-    void apply(state_type& f, const state_type& x, int index, double dx) const override
-    {
-        f(index) = x(index) - x(m_connecting_index);
+        
     }
 };
 
-
-struct Equation
-{
-    std::ofstream                       file{};         // csv file for log data
-    std::unique_ptr<BoundaryCondition>  top_bc{};       // Top boundary condition
-    std::unique_ptr<BoundaryCondition>  bot_bc{};       // Bottom boundary condition
-    double                              t0{};           // Initial condition
-    SegmentIndex                        index{};        // Start and end index
-
-    void log(const state_vector& x, const double t)
-    {
-        file << t;
-        for (int i = 0; i < x.size(); i++)
-            file << "," << x[i];
-        file << "\n";
-    }
-
-    size_t getSize() const
-    {
-        return (index.endIndex - index.startIndex + 1);
-    }
-
-    void setInitialCondition(state_vector& x) const
-    {
-        for (int i = index.startIndex; i <= index.endIndex; ++i)
-        {
-            x[i] = t0;
-        }
-    }
-
-    void setMassMatrix(sparse_matrix& M) const
-    {
-        for (int i = index.startIndex; i <= index.endIndex; ++i)
-        {
-            M(i, i, 1.0);
-        }
-    }
-};
-
-struct SystemOfEquation
-{
-    Equation        T{};            // Temperature
-    Equation        P{};            // Pressure
-    Equation        U{};           // Velocity
-    int_type        Nvar = 3;           // Number of variables to solve for. E.g. temp. and conc.   
-
-    size_t getSize() const
-    {
-        size_t size = 0;
-        size += T.getSize();
-        size += P.getSize();
-        size += U.getSize();
-        return size;
-    }
-
-    void initialise(const std::string& name_id)
-    {
-        T.file.open(name_id + "_T.csv");
-        P.file.open(name_id + "_P.csv");
-        U.file.open(name_id + "_U.csv");
-    }
-
-    void cleanUp()
-    {
-        T.file.close();
-        P.file.close();
-        U.file.close();
-    }
-};
 
 struct ISystemBlock
 {
@@ -180,7 +60,7 @@ struct ISystemBlock
 
     explicit ISystemBlock(const std::string& name) : m_name(name) {}
     virtual ~ISystemBlock() = default;
-
+    
     size_t getSize() const
     {
         return eq.getSize();
@@ -193,20 +73,26 @@ struct ISystemBlock
     virtual void updateT(state_type& f, const state_type& x) const = 0;
     virtual void updateP(state_type& f, const state_type& x) const = 0;
     virtual void updateU(state_type& f, const state_type& x) const = 0;
+    virtual void updateVariables(double t) = 0;
 };
+
 
 struct PorousMedia : ISystemBlock
 {
-    double              K = 1.0e-9;     // Permeability [m2/s]
-    double              vis = 1.0e-5;   // Viscosity [Pa-s]
+    DiffusionCoefficient    D;
+    DiffusionCoefficient1D  D1;
+    double                  K = 1.0e-9;     // Permeability [m2/s]
+    double                  vis = 1.0e-5;   // Viscosity [Pa-s]
 
-    explicit PorousMedia(const std::string& name) : ISystemBlock(name) {}
+    explicit PorousMedia(const std::string& name) : ISystemBlock(name), D(eq), D1(eq) {}
+    
     ~PorousMedia() final = default;
 
     void initialise() override
     {
         dx = L / N;
         eq.initialise(m_name);
+        D1.initialise(N + 2);
     }
 
     void cleanUp() override
@@ -285,7 +171,12 @@ struct PorousMedia : ISystemBlock
             u++;
             p++;
         }
-    }   
+    }
+
+    void updateVariables(double t) override
+    {
+        D.update(t);
+    }
 };
 
 
@@ -350,27 +241,26 @@ struct MySystem
         }
     }
 
-    void updateT(state_type& f, const state_type& x) const
+    void update(state_type& f, const state_type& x, double t) const
     {
         for (auto& block : m_sys)
         {
             block->updateT(f, x);
         }
-    }
 
-    void updateP(state_type& f, const state_type& x) const
-    {
         for (auto& block : m_sys)
         {
             block->updateP(f, x);
         }
-    }
 
-    void updateU(state_type& f, const state_type& x) const
-    {
         for (auto& block : m_sys)
         {
             block->updateU(f, x);
+        }
+
+        for (auto& block : m_sys)
+        {
+            block->updateVariables(t);
         }
     }
 
@@ -429,11 +319,9 @@ class MyRHS
 public:
     explicit MyRHS(MySystem& system) : m_system(system) {}
 
-    void operator()(state_type& f, const state_type& x, const double) const
+    void operator()(state_type& f, const state_type& x, const double t) const
     {
-        m_system.updateT(f, x);
-        m_system.updateP(f, x);
-        m_system.updateU(f, x);
+        m_system.update(f, x, t);
     }
 };
 
@@ -445,31 +333,6 @@ static void printVector(const state_vector& x)
         std::cout << "\t" << x[i] << "\n";
     }
     std::cout << "\n";
-}
-
-static state_vector getCellCenterVariable(const state_vector& x, SegmentIndex index)
-{
-    int N = index.endIndex - index.startIndex;
-    if (N <= 1) return state_vector();
-
-    state_vector var(N - 1);
-    for (int i = 0; i < N - 1; ++i)
-    {
-        var[i] = x[i + index.startIndex + 1]; // avoids the ghost cells
-    }
-    return var;
-}
-
-static state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
-{
-    int N = index.endIndex - index.startIndex + 1;
-
-    state_vector var(N);
-    for (int i = 0; i < N; ++i)
-    {
-        var[i] = x[i + index.startIndex]; // avoids the ghost cells
-    }
-    return var;
 }
 
 class MySolutionManager
@@ -556,7 +419,7 @@ int main()
     pm2->eq.T.bot_bc = std::make_unique<DirichletBC>(298, Location::Bottom);
     pm2->eq.T.top_bc = std::make_unique<DirichletBC>(273, Location::Top);
 
-    connectBoundaryConditions(pm1->eq.T, pm2->eq.T);
+    //connectBoundaryConditions(pm1->eq.T, pm2->eq.T);
 
     // INITIAL CONDITIONS
     pm1->eq.T.t0 = 293.0;
