@@ -1,4 +1,5 @@
 #include "Solvex/Equations.h"
+#include "Solvex/Solvex.h"
 
 namespace Solvex
 {
@@ -12,12 +13,12 @@ namespace Solvex
 
     size_t Equation::getSize() const
     {
-        return (index.endIndex - index.startIndex + 1);
+        return (endIndex - startIndex + 1);
     }
 
     void Equation::setInitialCondition(state_vector& x) const
     {
-        for (int i = index.startIndex; i <= index.endIndex; ++i)
+        for (int i = startIndex; i <= endIndex; ++i)
         {
             x[i] = t0;
         }
@@ -25,7 +26,8 @@ namespace Solvex
 
     void Equation::setMassMatrix(sparse_matrix& M) const
     {
-        for (int i = index.startIndex; i <= index.endIndex; ++i)
+        //for (int i = index.startIndex; i <= index.endIndex; ++i)
+        for (int i = startIndex + 1; i < endIndex; ++i) // Ignore the first and last nodes as they are ghost cells
         {
             M(i, i, 1.0);
         }
@@ -52,6 +54,17 @@ namespace Solvex
         T.file.close();
         P.file.close();
         U.file.close();
+    }
+
+    void SystemOfEquation::log(const state_vector& x, double t)
+    {
+        auto Tvals = getCellCenterVariable(x, T.startIndex, T.endIndex);
+        auto Pvals = getCellCenterVariable(x, P.startIndex, P.endIndex);
+        auto Uvals = getCellFaceVariable(x, U.startIndex, U.endIndex);
+
+        T.log(Tvals, t);
+        P.log(Pvals, t);
+        U.log(Uvals, t);
     }
 
 } // End Solvex namespace

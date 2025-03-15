@@ -31,12 +31,12 @@ namespace Solvex
     struct VariableInTime_1D
     {
         std::ofstream       file{};         // csv file for log data
-        std::vector<double> m_var{};        // Variable that changes with time and space in 1 dimention
+        state_type          m_var{};        // Variable that changes with time and space in 1 dimention
 
         VariableInTime_1D() = default;
         virtual ~VariableInTime_1D() = default;
 
-        virtual void update(const state_vector& x, double t) = 0;
+        virtual void update(const state_type& x, double t) = 0;
 
         void initialise(int N)
         {

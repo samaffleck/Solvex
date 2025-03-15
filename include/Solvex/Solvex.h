@@ -63,27 +63,27 @@ namespace Solvex
         int jacobian_update_frequency = 1,
         double newton_relaxation_factor = 1.0);
 
-    static state_vector getCellCenterVariable(const state_vector& x, SegmentIndex index)
+    static state_vector getCellCenterVariable(const state_vector& x, int startIndex, int endIndex)
     {
-        int N = index.endIndex - index.startIndex;
+        int N = endIndex - startIndex;
         if (N <= 1) return state_vector();
     
         state_vector var(N - 1);
         for (int i = 0; i < N - 1; ++i)
         {
-            var[i] = x[i + index.startIndex + 1]; // avoids the ghost cells
+            var[i] = x[i + startIndex + 1]; // avoids the ghost cells
         }
         return var;
     }
     
-    static state_vector getCellFaceVariable(const state_vector& x, SegmentIndex index)
+    static state_vector getCellFaceVariable(const state_vector& x, int startIndex, int endIndex)
     {
-        int N = index.endIndex - index.startIndex + 1;
+        int N = endIndex - startIndex + 1;
     
         state_vector var(N);
         for (int i = 0; i < N; ++i)
         {
-            var[i] = x[i + index.startIndex]; // avoids the ghost cells
+            var[i] = x[i + startIndex]; // avoids the ghost cells
         }
         return var;
     }

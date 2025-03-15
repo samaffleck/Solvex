@@ -3,8 +3,11 @@
 // DAE-CPP includes
 #include "dae-cpp/solver.hpp"
 
+
 namespace Solvex
 {
+    struct Equation;
+
     using namespace daecpp;
 
     // Enums
@@ -61,5 +64,7 @@ namespace Solvex
         InterfaceBoundary(int connecting_index, Location location);
         void apply(state_type& f, const state_type& x, int index, double dx) const override;
     };
+
+    void connectBoundaryConditions(Equation& top_equation, Equation& bottom_equation);
 
 } // end Solvex namespace

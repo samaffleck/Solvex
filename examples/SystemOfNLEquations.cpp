@@ -36,36 +36,39 @@ struct DiffusionCoefficient1D : VariableInTime_1D
     explicit DiffusionCoefficient1D(SystemOfEquation& equations) : m_eq(equations) {}
     ~DiffusionCoefficient1D() final = default;
 
-    void update(const state_vector& x, double t) override
+    void update(const state_type& x, double t) override
     {
-        int T = m_eq.T.index.startIndex;
+        int T = m_eq.T.startIndex;
         double T_ref = 298;
 
         for (int i = 0; i < m_var.size(); ++i)
         {
-            m_var[i] = 1e-3 * (x[T + i] / (T_ref));
+            m_var[i] = 1e-3 * (x[T + i] / T_ref);
         }
-        
     }
 };
 
 
 struct ISystemBlock
 {
-    SystemOfEquation    eq;
+    SystemOfEquation        eq;
     std::string         m_name{};
     double              L = 1.0;        // Length of domain [m]
     double              dx = 1.0;       // Cell width [m]
     int_type            N = 40;         // Number of cells
 
-    explicit ISystemBlock(const std::string& name) : m_name(name) {}
-    virtual ~ISystemBlock() = default;
-    
     size_t getSize() const
     {
         return eq.getSize();
     }
 
+    void log(const state_vector& x, double t)
+    {
+        eq.log(x, t);
+    }
+
+    explicit ISystemBlock(const std::string& name) : m_name(name) {}
+    virtual ~ISystemBlock() = default;
     virtual void initialise() = 0;
     virtual void cleanUp() = 0;
     virtual void setInitialConditions(state_vector& x) const = 0;
@@ -73,7 +76,7 @@ struct ISystemBlock
     virtual void updateT(state_type& f, const state_type& x) const = 0;
     virtual void updateP(state_type& f, const state_type& x) const = 0;
     virtual void updateU(state_type& f, const state_type& x) const = 0;
-    virtual void updateVariables(double t) = 0;
+    virtual void updateVariables(const state_type& x, double t) = 0;
 };
 
 
@@ -115,8 +118,8 @@ struct PorousMedia : ISystemBlock
 
     void updateT(state_type& f, const state_type& x) const override
     {
-        int startIndex = eq.T.index.startIndex;
-        int endIndex = eq.T.index.endIndex;
+        int startIndex = eq.T.startIndex;
+        int endIndex = eq.T.endIndex;
 
         eq.T.bot_bc->apply(f, x, startIndex, dx);
 
@@ -130,10 +133,10 @@ struct PorousMedia : ISystemBlock
 
     void updateP(state_type& f, const state_type& x) const override
     {
-        int startIndex = eq.P.index.startIndex;
-        int endIndex = eq.P.index.endIndex;
+        int startIndex = eq.P.startIndex;
+        int endIndex = eq.P.endIndex;
         autodiff::real _dx = 1 / dx;
-        int u = eq.U.index.startIndex + 1;
+        int u = eq.U.startIndex + 1;
         autodiff::real K1 = K / (dx * vis);
         
         f(startIndex) = autodiff::real(101425) - x(startIndex);
@@ -158,9 +161,9 @@ struct PorousMedia : ISystemBlock
     {
         autodiff::real  _dx = 1 / dx;
         autodiff::real  K1 = K / vis;
-        int     p = eq.P.index.startIndex;
-        int     u = eq.U.index.startIndex;
-        int     len = eq.U.index.endIndex - eq.U.index.startIndex + 1;
+        int     p = eq.P.startIndex;
+        int     u = eq.U.startIndex;
+        int     len = eq.U.endIndex - eq.U.startIndex + 1;
 
         for (int i = 0; i < len; ++i)
         {
@@ -173,9 +176,10 @@ struct PorousMedia : ISystemBlock
         }
     }
 
-    void updateVariables(double t) override
+    void updateVariables(const state_type& x, double t) override
     {
         D.update(t);
+        D1.update(x, t);
     }
 };
 
@@ -208,23 +212,23 @@ struct MySystem
 
         for (const auto& block : m_sys)
         {
-            block->eq.T.index.startIndex = start_index;
-            block->eq.T.index.endIndex = start_index + block->N + 1;
-            start_index = block->eq.T.index.endIndex + 1;
+            block->eq.T.startIndex = start_index;
+            block->eq.T.endIndex = start_index + block->N + 1;
+            start_index = block->eq.T.endIndex + 1;
         }
         
         for (const auto& block : m_sys)
         {
-            block->eq.P.index.startIndex = start_index;
-            block->eq.P.index.endIndex = start_index + block->N + 1;
-            start_index = block->eq.P.index.endIndex + 1;
+            block->eq.P.startIndex = start_index;
+            block->eq.P.endIndex = start_index + block->N + 1;
+            start_index = block->eq.P.endIndex + 1;
         }
 
         for (const auto& block : m_sys)
         {
-            block->eq.U.index.startIndex = start_index;
-            block->eq.U.index.endIndex = start_index + block->N;
-            start_index = block->eq.U.index.endIndex + 1;
+            block->eq.U.startIndex = start_index;
+            block->eq.U.endIndex = start_index + block->N;
+            start_index = block->eq.U.endIndex + 1;
         }
 
         for (const auto& block : m_sys)
@@ -260,7 +264,7 @@ struct MySystem
 
         for (auto& block : m_sys)
         {
-            block->updateVariables(t);
+            block->updateVariables(x, t);
         }
     }
 
@@ -297,6 +301,14 @@ struct MySystem
             block->setMassMatrix(M);
         }
     }
+
+    void log(const state_vector& x, double t)
+    {
+        for (const auto& block : m_sys)
+        {
+            block->log(x, t);
+        }
+    }
 };
 
 class MyMassMatrix
@@ -325,16 +337,6 @@ public:
     }
 };
 
-static void printVector(const state_vector& x)
-{
-    std::cout << "x:\n";
-    for (size_t i = 0; i < x.size(); ++i)
-    {
-        std::cout << "\t" << x[i] << "\n";
-    }
-    std::cout << "\n";
-}
-
 class MySolutionManager
 {
     MySystem& m_sys;
@@ -344,16 +346,7 @@ public:
     
     int operator()(const state_vector& x, const double t)
     {
-        for (const auto& block : m_sys.m_sys)
-        {
-            auto Tvals = getCellCenterVariable(x, block->eq.T.index);
-            auto Pvals = getCellCenterVariable(x, block->eq.P.index);
-            auto Uvals = getCellFaceVariable(x, block->eq.U.index);
-
-            block->eq.T.log(Tvals, t);
-            block->eq.P.log(Pvals, t);
-            block->eq.U.log(Uvals, t);
-        }
+        m_sys.log(x, t);
         
         return 0;
     }
@@ -375,7 +368,6 @@ static void RunStudy(Study& study)
     
     // Generate the initial condition vector
     state_vector x0 = study.m_system.getInitialConditions();
-    printVector(x0);
 
     // Solve the system of ODEs
     solve(
@@ -389,17 +381,6 @@ static void RunStudy(Study& study)
 
     // Clean up
     study.m_system.cleanUp();
-}
-
-
-static void connectBoundaryConditions(Equation& top_equation, 
-    Equation& bottom_equation)
-{
-    int top_index = top_equation.index.endIndex - 1;
-    int bottom_index = bottom_equation.index.startIndex + 1;
-
-    top_equation.top_bc = std::make_unique<InterfaceBoundary>(bottom_index, Location::Top);
-    bottom_equation.bot_bc = std::make_unique<InterfaceBoundary>(top_index, Location::Bottom);
 }
 
 

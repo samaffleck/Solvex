@@ -10,19 +10,23 @@
 
 namespace Solvex
 {
-    struct SegmentIndex
+    // Enums
+
+    enum class CellType
     {
-        int startIndex{};
-        int endIndex{};
+        CENTER,
+        FACE
     };
 
     struct Equation
     {
-        std::ofstream                       file;           // CSV file for log data
+        std::ofstream                       file;          // CSV file for log data
         std::unique_ptr<BoundaryCondition>  top_bc;        // Top boundary condition
         std::unique_ptr<BoundaryCondition>  bot_bc;        // Bottom boundary condition
         double                              t0{};          // Initial condition
-        SegmentIndex                        index;         // Start and end index
+        int                                 startIndex{};
+        int                                 endIndex{};
+        CellType                            cellType = CellType::CENTER;
 
         void log(const state_vector& x, const double t);
         size_t getSize() const;
@@ -40,6 +44,7 @@ namespace Solvex
         size_t getSize() const;
         void initialise(const std::string& name_id);
         void cleanUp();
+        void log(const state_vector& x, double t);
     };
 
 } // End Solvex namespace
