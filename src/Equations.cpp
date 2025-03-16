@@ -6,7 +6,7 @@ namespace Solvex
     void Equation::log(const state_vector& x, const double t)
     {
         file << t;
-        for (int i = 0; i < x.size(); i++)
+        for (int i = startIndex; i <= endIndex; i++)
             file << "," << x[i];
         file << "\n";
     }
